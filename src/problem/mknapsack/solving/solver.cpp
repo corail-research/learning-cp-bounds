@@ -90,7 +90,8 @@ namespace {
   };
 }
 
-
+// TODO : transform K, starting value of multiplier and starting learning rate as parameters of the script 
+// TODO : update the multipliers with the article method
 class MultiKnapsack : public IntMaximizeScript {
 protected:
     /// Specification
