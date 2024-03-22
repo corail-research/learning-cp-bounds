@@ -55,7 +55,6 @@ namespace {
 
   protected:
     /// Find instance by name \a s
-    // static const std::vector<std::vector<int>>* find(const char* s) {
     static const int* find(const char* s) {
       for (int i=0; name[i] != NULL; i++)
         if (!strcmp(s,name[i]))
@@ -72,17 +71,12 @@ namespace {
       int u = 150000;
       return u+1;
     }
-    // float cLmultiplier(void) const {
-    //   float multiplier = 1.0f; 
-    //   return multiplier;
-    // }
 
   public:
     /// Initialize
-    Spec(const char* s) : pData(find(s)), l(0), u(0) { //, multiplier(0.0f) {
+    Spec(const char* s) : pData(find(s)), l(0), u(0) {
       if (valid()) {
         l = clower(); u = cupper();
-        // multiplier = cLmultiplier();
       }
     }
     /// Return lower bound
@@ -93,10 +87,6 @@ namespace {
     int upper(void) const {
       return u;
     }
-    // /// Return the lagrange multiplier
-    // float Lmultiplier(void) const {
-    //   return multiplier;
-    // }
   };
 }
 
@@ -132,15 +122,15 @@ public:
           multipliers[i] = new float[m];
       }
 
-    float value = 1.0f;
-    for (int i = 0; i < n; ++i) {
-        float sum = 0;
-        for (int j = 1; j < m; ++j) {
-            multipliers[i][j] = value;
-            sum += value;
-        }
-        multipliers[i][0] = sum; // the first column is the sum of the other columns
-    }
+      float value = 1.0f;
+      for (int i = 0; i < n; ++i) {
+          float sum = 0;
+          for (int j = 1; j < m; ++j) {
+              multipliers[i][j] = value;
+              sum += value;
+          }
+          multipliers[i][0] = sum; // the first column is the sum of the other columns
+      }
 
       for (int i = 0; i < n; i++) {
           profits[i] = spec.profit(i);
@@ -288,16 +278,10 @@ public:
     rel(*this, z <= final_bound);
     std::cout << "final bound : " << final_bound << std::endl;
 
-    // Deallocate memory
-    // for (int i = 0; i < rows; ++i) {
-    //     delete[] multipliers[i];
-    // }
-
     for (int i = 0; i < rows; ++i) {
         delete[] value_var_solution[i];
     }
 
-    // delete[] multipliers;
     delete[] value_var_solution;
 }
 
