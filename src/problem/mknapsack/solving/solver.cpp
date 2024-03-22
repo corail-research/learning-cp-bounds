@@ -22,7 +22,6 @@ namespace {
     const int* pData;
     /// Lower and upper bound
     int l, u;
-    float multiplier;
   public:
     /// Whether a valid specification has been found
     bool valid(void) const {
@@ -51,8 +50,7 @@ namespace {
     /// Return the optimal value (last value in the instance file)
     int optimal(int nb_items, int nb_constraints) const {
       return pData[2+nb_items+nb_constraints+nb_constraints*nb_items+1];
-    }
-
+    } 
   protected:
     /// Find instance by name \a s
     static const int* find(const char* s) {
@@ -90,7 +88,16 @@ namespace {
   };
 }
 
-// TODO : transform K, starting value of multiplier and starting learning rate as parameters of the script 
+class OptionsKnapsack: public InstanceOptions {
+public:
+  int K;
+  float learning_rate;
+  float init_value_multipliers;
+  /// Initialize options for example with name \a s
+  OptionsKnapsack(const char* s, int K0, float learning_rate0, float init_value_multipliers0)
+    : InstanceOptions(s), K(K0), learning_rate(learning_rate0), init_value_multipliers(init_value_multipliers0) {}
+};
+
 // TODO : update the multipliers with the article method
 class MultiKnapsack : public IntMaximizeScript {
 protected:
@@ -102,10 +109,13 @@ protected:
     IntVar z;
     // Lagrange multipliers
     float **multipliers;
+    int K;
+    float learning_rate;
+    float init_value_multipliers;
 public:
 
   /// Actual model
-  MultiKnapsack(const InstanceOptions& opt)
+  MultiKnapsack(const OptionsKnapsack& opt)
   : IntMaximizeScript(opt),
     spec(opt.instance()), 
     x(*this, spec.nb_items(), 0, 1),
@@ -116,6 +126,9 @@ public:
       int profits[n];                 // The profit of the items
       int capacities[m];              // The capacities of the knapsacks
       int weights[m][n];              // The weights of the items in the knapsacks (one vector per knapsack)  
+      this->K = opt.K;                // The number of iteration to find the optimal multipliers
+      this->learning_rate = opt.learning_rate; // The learning rate to update the multipliers
+      this->init_value_multipliers = opt.init_value_multipliers; // The starting value of the multipliers
 
       // Allocate memory for 2D array
       multipliers = new float*[n];
@@ -127,8 +140,8 @@ public:
       for (int i = 0; i < n; ++i) {
           float sum = 0;
           for (int j = 1; j < m; ++j) {
-              multipliers[i][j] = value;
-              sum += value;
+              multipliers[i][j] = init_value_multipliers;
+              sum += init_value_multipliers;
           }
           multipliers[i][0] = sum; // the first column is the sum of the other columns
       }
@@ -184,6 +197,9 @@ public:
     x.update(*this, s.x);
     z.update(*this, s.z);
     multipliers = s.multipliers;
+    this->K = s.K;
+    this->learning_rate = s.learning_rate;
+    this->init_value_multipliers = s.init_value_multipliers;
   }
   /// Copy during cloning
   virtual Space*
@@ -197,10 +213,8 @@ public:
     // We impose the constraint z >= current sol
     rel(*this, z >= b.z);
 
-    int K = 20; // number of iteration to find the optimal multipliers, TODO : parameterize by the user
-    // float lambda = 1.0f; // used to update t_k in the paper 
-    float lr = 0.01f; // learning rate
-    
+    int K = b.K;
+    float lr = b.learning_rate;
     int nb_items = b.spec.nb_items();
     int nb_constraints = b.spec.nb_constraints();
     IntVar z_knp = b.z;
@@ -277,7 +291,6 @@ public:
 
     // We impose the constraint z <= final_bound
     rel(*this, z <= final_bound);
-    std::cout << "final bound : " << final_bound << std::endl;
 
     for (int i = 0; i < rows; ++i) {
         delete[] value_var_solution[i];
@@ -578,12 +591,17 @@ float dp_knapsack(int capacity, int weights[], float val[], int nb_items, int nb
 };
 
 int main(int argc, char* argv[]) {
-  InstanceOptions opt("MultiKnapsack");
+  int K = 10;
+  float learning_rate = 0.01f;
+  float init_value_multipliers = 1.0f;
+  OptionsKnapsack opt("MultiKnapsack", K, learning_rate, init_value_multipliers);
+  // InstanceOptions opt("MultiKnapsack");
   opt.instance(name[0]);
   opt.solutions(0);
   opt.parse(argc,argv);
   // IntMaximizeScript::run<MultiKnapsack,DFS,InstanceOptions>(opt);
-  IntMaximizeScript::run<MultiKnapsack,BAB,InstanceOptions>(opt);
+  // IntMaximizeScript::run<MultiKnapsack,BAB,InstanceOptions>(opt);
+  IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
   return 0;
 }
 
