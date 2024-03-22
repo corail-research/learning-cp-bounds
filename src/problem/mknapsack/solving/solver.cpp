@@ -196,7 +196,7 @@ public:
     : IntMaximizeScript(s), spec(s.spec) {
     x.update(*this, s.x);
     z.update(*this, s.z);
-    multipliers = s.multipliers;
+    this->multipliers = s.multipliers;
     this->K = s.K;
     this->learning_rate = s.learning_rate;
     this->init_value_multipliers = s.init_value_multipliers;
@@ -230,6 +230,16 @@ public:
     int rows = nb_items;
     int cols = nb_constraints;
 
+    // Print the multipliers
+    // std::cout << "lr:" << lr << std::endl;
+    // std::cout << "[start constraint()] multipliers:" << std::endl;
+    // for (int i = 0; i < rows; ++i) {
+    //     for (int j = 0; j < cols; ++j) {
+    //         std::cout << multipliers[i][j] << " ";
+    //     }
+    //     std::cout << std::endl;
+    // }
+
     // Allocate memory for 2D array
     // value of the variables of the solution to update the multipliers
     int** value_var_solution = new int*[rows];
@@ -246,6 +256,7 @@ public:
     };
 
     float final_bound = 0.0f;
+    float bound_test[K];
 
     for (int k=0; k<K; k++) { // We repeat the dynamic programming algo to solve the knapsack problem 
                               // and at each iteration we update the value of the Lagrangian multipliers
@@ -275,6 +286,24 @@ public:
         bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
       }
       final_bound = bound_iter;
+      bound_test[k] = bound_iter;
+      if (k >= 4) { // we divide by 2 the learning rate if the bound doesn't change 5 times in a row
+        float b1 = bound_test[k];
+        float b2 = bound_test[k-1];
+        float b3 = bound_test[k-2];
+        float b4 = bound_test[k-3];
+        float b5 = bound_test[k-4];
+
+        bool cond1 = (fabs(b1 - b2) <= 0.0001 * std::max(fabs(b1), fabs(b2)));
+        bool cond2 = (fabs(b2 - b3) <= 0.0001 * std::max(fabs(b2), fabs(b3)));
+        bool cond3 = (fabs(b3 - b4) <= 0.0001 * std::max(fabs(b3), fabs(b4)));
+        bool cond4 = (fabs(b4 - b5) <= 0.0001 * std::max(fabs(b4), fabs(b5)));
+
+        if (cond1 && cond2 && cond3 && cond4) {
+          lr = lr/2;
+        }
+      }
+
 
       // TODO : update the multipliers (article method)
 
@@ -600,7 +629,6 @@ int main(int argc, char* argv[]) {
   opt.solutions(0);
   opt.parse(argc,argv);
   // IntMaximizeScript::run<MultiKnapsack,DFS,InstanceOptions>(opt);
-  // IntMaximizeScript::run<MultiKnapsack,BAB,InstanceOptions>(opt);
   IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
   return 0;
 }
