@@ -8,6 +8,43 @@
 using namespace Gecode;
 
 
+class LI : public LocalHandle {
+protected:
+  class LIO : public LocalObject {
+  public:
+    std::vector<std::vector<float>> data;
+    LIO(Space& home, std::vector<std::vector<float>> d) : LocalObject(home), data(d) {}
+    LIO(Space& home, LIO& l)
+      : LocalObject(home,l), data(l.data) {}
+    virtual LocalObject* copy(Space& home) {
+      return new (home) LIO(home,*this);
+    }
+    virtual size_t dispose(Space&) { return sizeof(*this); }
+  };
+public:
+  LI(Space& home, std::vector<std::vector<float>> d)
+    : LocalHandle(new (home) LIO(home,d)) {}
+  LI(const LI& li)
+    : LocalHandle(li) {}
+  LI& operator =(const LI& li) {
+    return static_cast<LI&>(LocalHandle::operator =(li));
+  }
+  std::vector<std::vector<float>> get(void) const {
+    return static_cast<LIO*>(object())->data;
+  }
+  void set(std::vector<std::vector<float>> d) {
+    static_cast<LIO*>(object())->data = d;
+  }
+};
+
+// Create the subproblems of the knapsack problem
+struct SubProblem {
+  int* weights_sub;
+  float* val_sub;
+  int capacity;
+  int idx_constraint;
+};
+
 // Instance data
 namespace {
   // Instances
@@ -101,17 +138,13 @@ public:
 // TODO : update the multipliers with the article method
 class MultiKnapsack : public IntMaximizeScript {
 protected:
-    /// Specification
-    const Spec spec;
-    /// Decision variables for each item
-    BoolVarArray x;
-    /// Variable for the objective function
-    IntVar z;
-    // Lagrange multipliers
-    float **multipliers;
+    const Spec spec; // Specification
+    BoolVarArray x; // Decision variables for each item
+    IntVar z; // Variable for the objective function
     int K;
     float learning_rate;
     float init_value_multipliers;
+    std::vector<std::vector<float>> data; // Lagrangian multipliers shared between the nodes
 public:
 
   /// Actual model
@@ -130,21 +163,19 @@ public:
       this->learning_rate = opt.learning_rate; // The learning rate to update the multipliers
       this->init_value_multipliers = opt.init_value_multipliers; // The starting value of the multipliers
 
-      // Allocate memory for 2D array
-      multipliers = new float*[n];
-      for (int i = 0; i < n; ++i) {
-          multipliers[i] = new float[m];
-      }
-
-      float value = 1.0f;
+      std::vector<std::vector<float>> v; // help to initialize the local handle which will contain the multipliers and be shared between the nodes
+      v.resize(n);
       for (int i = 0; i < n; ++i) {
           float sum = 0;
+          v[i].resize(m);
           for (int j = 1; j < m; ++j) {
-              multipliers[i][j] = init_value_multipliers;
+              v[i][j] = init_value_multipliers;
               sum += init_value_multipliers;
           }
-          multipliers[i][0] = sum; // the first column is the sum of the other columns
+          v[i][0] = sum;
       }
+      LI data(*this, v);
+      this->data = data.get();
 
       for (int i = 0; i < n; i++) {
           profits[i] = spec.profit(i);
@@ -184,76 +215,43 @@ public:
           linear(*this, weight_x, IRT_LQ, capacities[j]);          
       }
 
-      branch(*this, x, BOOL_VAR_NONE(), BOOL_VAL_MAX());
+      for (int i = 0; i<x.size(); i++) {
+        branch(*this, x[i], BOOL_VAL_MAX());
+        branch(*this, &MultiKnapsack::post); // compute the bound at each node
+      }
   }
 
-  /// Return cost
-  virtual IntVar cost(void) const {
-    return z;
-  }
-  /// Constructor for cloning \a s
-  MultiKnapsack(MultiKnapsack& s)
-    : IntMaximizeScript(s), spec(s.spec) {
-    x.update(*this, s.x);
-    z.update(*this, s.z);
-    this->multipliers = s.multipliers;
-    this->K = s.K;
-    this->learning_rate = s.learning_rate;
-    this->init_value_multipliers = s.init_value_multipliers;
-  }
-  /// Copy during cloning
-  virtual Space*
-  copy(void) {
-    return new MultiKnapsack(*this);
-  }
-
-  virtual void constrain(const Space& _b) {
-    const MultiKnapsack& b = static_cast<const MultiKnapsack&>(_b);
-    
-    // We impose the constraint z >= current sol
-    rel(*this, z >= b.z);
-
-    int K = b.K;
-    float lr = b.learning_rate;
-    int nb_items = b.spec.nb_items();
-    int nb_constraints = b.spec.nb_constraints();
-    IntVar z_knp = b.z;
-    int capacity = b.spec.capacity(0, nb_items);
+  void more(void) { // compute the bound at each node
+    float copy_learning_rate = learning_rate;
+    int nb_items = spec.nb_items();
+    int nb_constraints = spec.nb_constraints();
+    int capacity = spec.capacity(0, nb_items);
     int weights[nb_items];
     int val[nb_items];
 
     for (int i = 0; i < nb_items; i++) {
-      weights[i] = b.spec.weight(0, i, nb_items, nb_constraints);
-      val[i] = b.spec.profit(i);
+      weights[i] = spec.weight(0, i, nb_items, nb_constraints);
+      val[i] = spec.profit(i);
     }
 
     int rows = nb_items;
     int cols = nb_constraints;
 
-    // Print the multipliers
-    // std::cout << "lr:" << lr << std::endl;
-    // std::cout << "[start constraint()] multipliers:" << std::endl;
-    // for (int i = 0; i < rows; ++i) {
-    //     for (int j = 0; j < cols; ++j) {
-    //         std::cout << multipliers[i][j] << " ";
-    //     }
-    //     std::cout << std::endl;
-    // }
+    float** multipliers = new float*[rows];
+    for (int i = 0; i < rows; ++i) {
+        multipliers[i] = new float[cols];
+    }
 
-    // Allocate memory for 2D array
-    // value of the variables of the solution to update the multipliers
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        multipliers[i][j] = data[i][j];
+      }
+    }
+
     int** value_var_solution = new int*[rows];
     for (int i = 0; i < rows; ++i) {
         value_var_solution[i] = new int[cols];
     }
-
-    // Create the subproblems of the knapsack problem
-    struct SubProblem {
-      int* weights_sub;
-      float* val_sub;
-      int capacity;
-      int idx_constraint;
-    };
 
     float final_bound = 0.0f;
     float bound_test[K];
@@ -266,11 +264,11 @@ public:
         SubProblem subproblem;
         subproblem.weights_sub = new int[nb_items];
         subproblem.val_sub = new float[nb_items];
-        subproblem.capacity = b.spec.capacity(idx_constraint, nb_items);
+        subproblem.capacity = spec.capacity(idx_constraint, nb_items);
         for (int i = 0; i < nb_items; i++) {
-          subproblem.weights_sub[i] = b.spec.weight(idx_constraint, i, nb_items, nb_constraints);
+          subproblem.weights_sub[i] = spec.weight(idx_constraint, i, nb_items, nb_constraints);
           if (idx_constraint == 0) {
-            subproblem.val_sub[i] = b.spec.profit(i) + multipliers[i][idx_constraint];
+            subproblem.val_sub[i] = spec.profit(i) + multipliers[i][idx_constraint];
           }
           else {
             subproblem.val_sub[i] = -multipliers[i][idx_constraint];
@@ -300,7 +298,143 @@ public:
         bool cond4 = (fabs(b4 - b5) <= 0.0001 * std::max(fabs(b4), fabs(b5)));
 
         if (cond1 && cond2 && cond3 && cond4) {
-          lr = lr/2;
+          learning_rate = learning_rate/2;
+        }
+      }
+  }
+
+  // Update the multipliers (Quentin method)
+  for (int i = 0; i < rows; ++i) {
+    float sum = 0;
+    for (int j = 1; j < cols; ++j) {
+      multipliers[i][j] = multipliers[i][j] - learning_rate * (value_var_solution[i][0] - value_var_solution[i][j]);
+      data[i][j] = multipliers[i][j];
+      sum += multipliers[i][j];
+    }
+    multipliers[i][0] = sum;
+    data[i][0] = sum;
+  }
+
+  // We impose the constraint z <= final_bound
+  rel(*this, z <= final_bound);
+
+  learning_rate = copy_learning_rate;
+
+  for (int i = 0; i < rows; ++i) {
+    delete[] value_var_solution[i];
+  }
+
+  delete[] value_var_solution;  
+  }
+
+  static void post(Space& home) {
+    static_cast<MultiKnapsack&>(home).more();
+  }
+
+  /// Return cost
+  virtual IntVar cost(void) const {
+    return z;
+  }
+  /// Constructor for cloning \a s
+  MultiKnapsack(MultiKnapsack& s)
+    : IntMaximizeScript(s), spec(s.spec) {
+    x.update(*this, s.x);
+    z.update(*this, s.z);
+    this->K = s.K;
+    this->learning_rate = s.learning_rate;
+    this->init_value_multipliers = s.init_value_multipliers;
+    this->data = s.data;
+  }
+  /// Copy during cloning
+  virtual Space*
+  copy(void) {
+    return new MultiKnapsack(*this);
+  }
+
+  virtual void constrain(const Space& _b) {
+    const MultiKnapsack& b = static_cast<const MultiKnapsack&>(_b);
+
+    // We impose the constraint z >= current sol
+    rel(*this, z >= b.z);
+
+    float copy_learning_rate = learning_rate;
+    int nb_items = spec.nb_items();
+    int nb_constraints = spec.nb_constraints();
+    int weights[nb_items];
+    int val[nb_items];
+
+    for (int i = 0; i < nb_items; i++) {
+      weights[i] = spec.weight(0, i, nb_items, nb_constraints);
+      val[i] = spec.profit(i);
+    }
+
+    int rows = nb_items;
+    int cols = nb_constraints;
+
+    float** multipliers = new float*[rows];
+    for (int i = 0; i < rows; ++i) {
+        multipliers[i] = new float[cols];
+    }
+
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        multipliers[i][j] = data[i][j];
+      }
+    }
+
+    // Allocate memory for 2D array
+    // value of the variables of the solution to update the multipliers
+    int** value_var_solution = new int*[rows];
+    for (int i = 0; i < rows; ++i) {
+        value_var_solution[i] = new int[cols];
+    }
+
+    float final_bound = 0.0f;
+    float bound_test[K];
+
+    for (int k=0; k<K; k++) { // We repeat the dynamic programming algo to solve the knapsack problem 
+                              // and at each iteration we update the value of the Lagrangian multipliers
+      float bound_iter = 0.0f;
+      std::vector<SubProblem> subproblems;
+      for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+        SubProblem subproblem;
+        subproblem.weights_sub = new int[nb_items];
+        subproblem.val_sub = new float[nb_items];
+        subproblem.capacity = spec.capacity(idx_constraint, nb_items);
+        for (int i = 0; i < nb_items; i++) {
+          subproblem.weights_sub[i] = spec.weight(idx_constraint, i, nb_items, nb_constraints);
+          if (idx_constraint == 0) {
+            subproblem.val_sub[i] = spec.profit(i) + multipliers[i][idx_constraint];
+          }
+          else {
+            subproblem.val_sub[i] = -multipliers[i][idx_constraint];
+          }        
+        }
+        subproblem.idx_constraint = idx_constraint;
+        subproblems.push_back(subproblem);
+      }
+
+      for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
+        SubProblem subproblem = subproblems[id_subproblem];
+        float bound = dp_knapsack(subproblem.capacity, subproblem.weights_sub, subproblem.val_sub, nb_items, nb_constraints, subproblem.idx_constraint, multipliers, value_var_solution, false);
+        bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
+      }
+      final_bound = bound_iter;
+      bound_test[k] = bound_iter;
+      if (k >= 4) { // we divide by 2 the learning rate if the bound doesn't change 5 times in a row
+        float b1 = bound_test[k];
+        float b2 = bound_test[k-1];
+        float b3 = bound_test[k-2];
+        float b4 = bound_test[k-3];
+        float b5 = bound_test[k-4];
+
+        bool cond1 = (fabs(b1 - b2) <= 0.0001 * std::max(fabs(b1), fabs(b2)));
+        bool cond2 = (fabs(b2 - b3) <= 0.0001 * std::max(fabs(b2), fabs(b3)));
+        bool cond3 = (fabs(b3 - b4) <= 0.0001 * std::max(fabs(b3), fabs(b4)));
+        bool cond4 = (fabs(b4 - b5) <= 0.0001 * std::max(fabs(b4), fabs(b5)));
+
+        if (cond1 && cond2 && cond3 && cond4) {
+          learning_rate = learning_rate/2;
         }
       }
 
@@ -311,15 +445,20 @@ public:
       for (int i = 0; i < rows; ++i) {
         float sum = 0;
         for (int j = 1; j < cols; ++j) {
-          multipliers[i][j] = multipliers[i][j] - lr * (value_var_solution[i][0] - value_var_solution[i][j]);
+          multipliers[i][j] = multipliers[i][j] - learning_rate * (value_var_solution[i][0] - value_var_solution[i][j]);
+          data[i][j] = multipliers[i][j];
           sum += multipliers[i][j];
         }
         multipliers[i][0] = sum;
+        data[i][0] = sum;
       }
     }
 
+
     // We impose the constraint z <= final_bound
     rel(*this, z <= final_bound);
+
+    learning_rate = copy_learning_rate;
 
     for (int i = 0; i < rows; ++i) {
         delete[] value_var_solution[i];
@@ -620,15 +759,13 @@ float dp_knapsack(int capacity, int weights[], float val[], int nb_items, int nb
 };
 
 int main(int argc, char* argv[]) {
-  int K = 10;
+  int K = 6;
   float learning_rate = 0.01f;
   float init_value_multipliers = 1.0f;
   OptionsKnapsack opt("MultiKnapsack", K, learning_rate, init_value_multipliers);
-  // InstanceOptions opt("MultiKnapsack");
   opt.instance(name[0]);
   opt.solutions(0);
   opt.parse(argc,argv);
-  // IntMaximizeScript::run<MultiKnapsack,DFS,InstanceOptions>(opt);
   IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
   return 0;
 }
