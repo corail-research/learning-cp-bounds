@@ -7,7 +7,7 @@
 
 using namespace Gecode;
 
-
+// Allow to store the multipliers in a local handle to share them between the nodes
 class LI : public LocalHandle {
 protected:
   class LIO : public LocalObject {
@@ -37,12 +37,32 @@ public:
   }
 };
 
-// Create the subproblems of the knapsack problem
+// Structure of the subproblems of the knapsack problem
 struct SubProblem {
   int* weights_sub;
   float* val_sub;
   int capacity;
   int idx_constraint;
+};
+
+// Assign labels 0 and 1 to the edges in the reduced graph
+struct LabelEdge {
+  std::pair<int, int> pair1; // (weight, index item)
+  std::pair<int, int> pair2; // (weight, index item)
+  int label; // 0 or 1
+};
+
+// Assign a cost equals to the value of the objective function if the variables is set to 1, for the labels set to 1
+struct CostEdge {
+  std::pair<int, int> pair1; // (w, i)
+  std::pair<int, int> pair2; // (w, i)
+  float cost; // 0 or 1
+};
+
+// compute the sum of all the cost among all the paths in the reduced graph
+struct Path {
+  std::vector<CostEdge> path;
+  float cost;
 };
 
 // Instance data
@@ -98,12 +118,12 @@ namespace {
     }
     /// Compute lower bound
     int clower(void) const {
-      int l = 141277;
+      int l = 0;
       return l;
     }
     /// Compute upper bound
     int cupper(void) const {
-      int u = 150000;
+      int u = 500000;
       return u+1;
     }
 
@@ -125,12 +145,12 @@ namespace {
   };
 }
 
+// Entered by the user
 class OptionsKnapsack: public InstanceOptions {
 public:
   int K;
   float learning_rate;
   float init_value_multipliers;
-  /// Initialize options for example with name \a s
   OptionsKnapsack(const char* s, int K0, float learning_rate0, float init_value_multipliers0)
     : InstanceOptions(s), K(K0), learning_rate(learning_rate0), init_value_multipliers(init_value_multipliers0) {}
 };
@@ -138,7 +158,7 @@ public:
 // TODO : update the multipliers with the article method
 class MultiKnapsack : public IntMaximizeScript {
 protected:
-    const Spec spec; // Specification
+    const Spec spec; // Specification of the instance
     BoolVarArray x; // Decision variables for each item
     IntVar z; // Variable for the objective function
     int K;
@@ -177,6 +197,7 @@ public:
       LI data(*this, v);
       this->data = data.get();
 
+      // Get the profits, capacities and weights of the items from the instance
       for (int i = 0; i < n; i++) {
           profits[i] = spec.profit(i);
       }
@@ -191,14 +212,7 @@ public:
               weights[j][i] = w;
           }
       }
-      int size_weights = sizeof(weights) / sizeof(weights[0]);
-      int size_weights_0 = sizeof(weights[0]) / sizeof(weights[0][0]);
-      int size_weights_1 = sizeof(weights[1]) / sizeof(weights[1][0]);
-      for (int j = 0; j < size_weights; j++) {
-          int size_weights_j = sizeof(weights[j]) / sizeof(weights[j][0]);
-          for (int i = 0; i < size_weights_j; i++) {
-          }
-      }
+
       // The objective function
       IntVarArgs profits_x;
       for (int i = 0; i < n; i++) {
@@ -221,7 +235,7 @@ public:
       }
   }
 
-  void more(void) { // compute the bound at each node
+  void more(void) { // compute the bound at each node after every branching
     float copy_learning_rate = learning_rate;
     int nb_items = spec.nb_items();
     int nb_constraints = spec.nb_constraints();
@@ -248,6 +262,7 @@ public:
       }
     }
 
+    // store the value of the variable in the solution during the dynamic programming algo to update the multipliers
     int** value_var_solution = new int*[rows];
     for (int i = 0; i < rows; ++i) {
         value_var_solution[i] = new int[cols];
@@ -260,6 +275,7 @@ public:
                               // and at each iteration we update the value of the Lagrangian multipliers
       float bound_iter = 0.0f;
       std::vector<SubProblem> subproblems;
+      // we create one subproblem for each knapsack constraint
       for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
         SubProblem subproblem;
         subproblem.weights_sub = new int[nb_items];
@@ -285,6 +301,7 @@ public:
       }
       final_bound = bound_iter;
       bound_test[k] = bound_iter;
+
       if (k >= 4) { // we divide by 2 the learning rate if the bound doesn't change 5 times in a row
         float b1 = bound_test[k];
         float b2 = bound_test[k-1];
@@ -303,7 +320,7 @@ public:
       }
   }
 
-  // Update the multipliers (Quentin method)
+  // Update the multipliers (Quentin method with constant learning rate) TODO : implement the article method with adaptive learning rate
   for (int i = 0; i < rows; ++i) {
     float sum = 0;
     for (int j = 1; j < cols; ++j) {
@@ -351,7 +368,7 @@ public:
     return new MultiKnapsack(*this);
   }
 
-  virtual void constrain(const Space& _b) {
+  virtual void constrain(const Space& _b) { // compute the bound at each leaf node giving a solution
     const MultiKnapsack& b = static_cast<const MultiKnapsack&>(_b);
 
     // We impose the constraint z >= current sol
@@ -396,6 +413,7 @@ public:
                               // and at each iteration we update the value of the Lagrangian multipliers
       float bound_iter = 0.0f;
       std::vector<SubProblem> subproblems;
+      // we create one subproblem for each knapsack constraint
       for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
         SubProblem subproblem;
         subproblem.weights_sub = new int[nb_items];
@@ -421,6 +439,7 @@ public:
       }
       final_bound = bound_iter;
       bound_test[k] = bound_iter;
+
       if (k >= 4) { // we divide by 2 the learning rate if the bound doesn't change 5 times in a row
         float b1 = bound_test[k];
         float b2 = bound_test[k-1];
@@ -437,7 +456,6 @@ public:
           learning_rate = learning_rate/2;
         }
       }
-
 
       // TODO : update the multipliers (article method)
 
@@ -467,7 +485,16 @@ public:
     delete[] value_var_solution;
 }
 
-float dp_knapsack(int capacity, int weights[], float val[], int nb_items, int nb_constraints, int idx_constraint, float** multipliers, int** value_var_solution, bool verbose=false) { // work only for 0-1 knapsack
+float dp_knapsack(int capacity, 
+                  int weights[], 
+                  float val[], 
+                  int nb_items, 
+                  int nb_constraints, 
+                  int idx_constraint, 
+                  float** multipliers, 
+                  int** value_var_solution, 
+                  bool verbose=false) { 
+  // work only for 0-1 knapsack
   // Use dynamic programming to solve a 0-1 knapsack problem
   // (cf article 'A Dynamic Programming Approach for Consistency and Propagation for Knapsack Constraints' by MICHAEL A. TRICK)
   int i, w;
@@ -597,13 +624,6 @@ float dp_knapsack(int capacity, int weights[], float val[], int nb_items, int nb
     }
   }
 
-  // Assign labels 0 and 1 to the edges in the reduced graph
-  struct LabelEdge {
-    std::pair<int, int> pair1; // (weight, index item)
-    std::pair<int, int> pair2; // (weight, index item)
-    int label; // 0 or 1
-  };
-
   std::vector<LabelEdge> label_edges;
   for (const auto& pair : id_nodes_in_reduced_graph) {
       // Search for the element in the vector
@@ -633,13 +653,6 @@ float dp_knapsack(int capacity, int weights[], float val[], int nb_items, int nb
     }
   }
 
-  // Assign a cost equals to the value of the objective function if the variables is set to 1, for the labels set to 1
-  struct CostEdge {
-    std::pair<int, int> pair1; // (w, i)
-    std::pair<int, int> pair2; // (w, i)
-    float cost; // 0 or 1
-  };
-
   std::vector<CostEdge> cost_edges;
   for (const auto& label_edge : label_edges) {
     std::pair<int, int> pair1 = label_edge.pair1;
@@ -660,11 +673,6 @@ float dp_knapsack(int capacity, int weights[], float val[], int nb_items, int nb
         std::cout << "(" << cost_edge.pair1.first << ", " << cost_edge.pair1.second << ") -> (" << cost_edge.pair2.first << ", " << cost_edge.pair2.second << ") : " << cost_edge.cost << std::endl;
     }
   }
-  // compute the sum of all the cost among all the paths in the reduced graph
-  struct Path {
-    std::vector<CostEdge> path;
-    float cost;
-  };
 
   std::vector<Path> paths;
   std::vector<float> costs;
