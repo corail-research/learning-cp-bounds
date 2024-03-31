@@ -12,10 +12,10 @@ class LI : public LocalHandle {
 protected:
   class LIO : public LocalObject {
   public:
-    std::vector<std::vector<float>> data;
-    LIO(Space& home, std::vector<std::vector<float>> d) : LocalObject(home), data(d) {}
+    std::vector<std::vector<float>> multipliers;
+    LIO(Space& home, std::vector<std::vector<float>> d) : LocalObject(home), multipliers(d) {}
     LIO(Space& home, LIO& l)
-      : LocalObject(home,l), data(l.data) {}
+      : LocalObject(home,l), multipliers(l.multipliers) {}
     virtual LocalObject* copy(Space& home) {
       return new (home) LIO(home,*this);
     }
@@ -30,10 +30,10 @@ public:
     return static_cast<LI&>(LocalHandle::operator =(li));
   }
   std::vector<std::vector<float>> get(void) const {
-    return static_cast<LIO*>(object())->data;
+    return static_cast<LIO*>(object())->multipliers;
   }
   void set(std::vector<std::vector<float>> d) {
-    static_cast<LIO*>(object())->data = d;
+    static_cast<LIO*>(object())->multipliers = d;
   }
 };
 
@@ -164,7 +164,7 @@ protected:
     int K;
     float learning_rate;
     float init_value_multipliers;
-    std::vector<std::vector<float>> data; // Lagrangian multipliers shared between the nodes
+    std::vector<std::vector<float>> multipliers; // Lagrangian multipliers shared between the nodes
 public:
 
   /// Actual model
@@ -194,8 +194,8 @@ public:
           }
           v[i][0] = sum;
       }
-      LI data(*this, v);
-      this->data = data.get();
+      LI multipliers(*this, v);
+      this->multipliers = multipliers.get();
 
       // Get the profits, capacities and weights of the items from the instance
       for (int i = 0; i < n; i++) {
@@ -251,17 +251,6 @@ public:
     int rows = nb_items;
     int cols = nb_constraints;
 
-    float** multipliers = new float*[rows];
-    for (int i = 0; i < rows; ++i) {
-        multipliers[i] = new float[cols];
-    }
-
-    for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < cols; j++) {
-        multipliers[i][j] = data[i][j];
-      }
-    }
-
     // store the value of the variable in the solution during the dynamic programming algo to update the multipliers
     int** value_var_solution = new int*[rows];
     for (int i = 0; i < rows; ++i) {
@@ -296,7 +285,13 @@ public:
 
       for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
         SubProblem subproblem = subproblems[id_subproblem];
-        float bound = dp_knapsack(subproblem.capacity, subproblem.weights_sub, subproblem.val_sub, nb_items, nb_constraints, subproblem.idx_constraint, multipliers, value_var_solution, false);
+        float bound = dp_knapsack(subproblem.capacity, 
+                                  subproblem.weights_sub, 
+                                  subproblem.val_sub, 
+                                  nb_items, nb_constraints, 
+                                  subproblem.idx_constraint, 
+                                  value_var_solution, 
+                                  false);
         bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
       }
       final_bound = bound_iter;
@@ -325,11 +320,9 @@ public:
     float sum = 0;
     for (int j = 1; j < cols; ++j) {
       multipliers[i][j] = multipliers[i][j] - learning_rate * (value_var_solution[i][0] - value_var_solution[i][j]);
-      data[i][j] = multipliers[i][j];
       sum += multipliers[i][j];
     }
     multipliers[i][0] = sum;
-    data[i][0] = sum;
   }
 
   // We impose the constraint z <= final_bound
@@ -360,7 +353,7 @@ public:
     this->K = s.K;
     this->learning_rate = s.learning_rate;
     this->init_value_multipliers = s.init_value_multipliers;
-    this->data = s.data;
+    this->multipliers = s.multipliers;
   }
   /// Copy during cloning
   virtual Space*
@@ -387,17 +380,6 @@ public:
 
     int rows = nb_items;
     int cols = nb_constraints;
-
-    float** multipliers = new float*[rows];
-    for (int i = 0; i < rows; ++i) {
-        multipliers[i] = new float[cols];
-    }
-
-    for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < cols; j++) {
-        multipliers[i][j] = data[i][j];
-      }
-    }
 
     // Allocate memory for 2D array
     // value of the variables of the solution to update the multipliers
@@ -434,7 +416,14 @@ public:
 
       for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
         SubProblem subproblem = subproblems[id_subproblem];
-        float bound = dp_knapsack(subproblem.capacity, subproblem.weights_sub, subproblem.val_sub, nb_items, nb_constraints, subproblem.idx_constraint, multipliers, value_var_solution, false);
+        float bound = dp_knapsack(subproblem.capacity, 
+                                  subproblem.weights_sub, 
+                                  subproblem.val_sub, 
+                                  nb_items, 
+                                  nb_constraints, 
+                                  subproblem.idx_constraint, 
+                                  value_var_solution, 
+                                  false);
         bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
       }
       final_bound = bound_iter;
@@ -464,14 +453,11 @@ public:
         float sum = 0;
         for (int j = 1; j < cols; ++j) {
           multipliers[i][j] = multipliers[i][j] - learning_rate * (value_var_solution[i][0] - value_var_solution[i][j]);
-          data[i][j] = multipliers[i][j];
           sum += multipliers[i][j];
         }
         multipliers[i][0] = sum;
-        data[i][0] = sum;
       }
     }
-
 
     // We impose the constraint z <= final_bound
     rel(*this, z <= final_bound);
@@ -491,7 +477,6 @@ float dp_knapsack(int capacity,
                   int nb_items, 
                   int nb_constraints, 
                   int idx_constraint, 
-                  float** multipliers, 
                   int** value_var_solution, 
                   bool verbose=false) { 
   // work only for 0-1 knapsack
