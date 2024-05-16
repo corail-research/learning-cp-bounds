@@ -1,11 +1,22 @@
 #include <gecode/driver.hh>
+#include <torch/script.h> 
 
 #include <gecode/int.hh>
 #include <gecode/minimodel.hh>
 
 #include <algorithm>
+#include <filesystem>
+#include <unordered_set>
+#include <random>
+#include <cstdlib>
+#include <unistd.h>
 
 using namespace Gecode;
+
+// Keep track of the nodes that have been written in the file
+static std::unordered_set<std::string> set_nodes;
+static torch::jit::script::Module module_1;
+static torch::jit::script::Module module_2;
 
 // Allow to store the multipliers in a local handle to share them between the nodes
 class LI : public LocalHandle {
@@ -21,6 +32,7 @@ protected:
     }
     virtual size_t dispose(Space&) { return sizeof(*this); }
   };
+
 public:
   LI(Space& home, std::vector<std::vector<float>> d)
     : LocalHandle(new (home) LIO(home,d)) {}
@@ -45,38 +57,18 @@ struct SubProblem {
   int idx_constraint;
 };
 
-// Assign labels 0 and 1 to the edges in the reduced graph
-struct LabelEdge {
-  std::pair<int, int> pair1; // (weight, index item)
-  std::pair<int, int> pair2; // (weight, index item)
-  int label; // 0 or 1
-};
-
-// Assign a cost equals to the value of the objective function if the variables is set to 1, for the labels set to 1
-struct CostEdge {
-  std::pair<int, int> pair1; // (w, i)
-  std::pair<int, int> pair2; // (w, i)
-  float cost; // 0 or 1
-};
-
-// compute the sum of all the cost among all the paths in the reduced graph
-struct Path {
-  std::vector<CostEdge> path;
-  float cost;
-};
-
 // Instance data
 namespace {
   // Instances
-  extern const int* mknps[];
+  extern int* mknps[];
   // Instance names
   extern const char* name[];
 
   /// A wrapper class for instance data
   class Spec {
+  private:
+    int* pData;
   protected:
-    /// Raw instance data
-    const int* pData;
     /// Lower and upper bound
     int l, u;
   public:
@@ -88,12 +80,16 @@ namespace {
     int nb_constraints(void) const {
       return pData[0];
     }
+    int pdatai(int i) const{
+        //std::cout<<"i : "<<i<<std::endl;
+        return pData[i];
+      }
     /// Return the number of items
     int nb_items(void) const {
       return pData[1];
     }
     /// Return the profit of item i (index of item starting at 0)
-    int profit(int i) const { 
+    int profit(int i) const {
       return pData[2+i];
     }
     /// Return the capacity of the knapsack i
@@ -107,10 +103,10 @@ namespace {
     /// Return the optimal value (last value in the instance file)
     int optimal(int nb_items, int nb_constraints) const {
       return pData[2+nb_items+nb_constraints+nb_constraints*nb_items+1];
-    } 
+    }
   protected:
     /// Find instance by name \a s
-    static const int* find(const char* s) {
+    static int* find(const char* s) {
       for (int i=0; name[i] != NULL; i++)
         if (!strcmp(s,name[i]))
           return mknps[i];
@@ -126,14 +122,41 @@ namespace {
       int u = 500000;
       return u+1;
     }
+    int nb_params(void) const {
+        return(2+nb_items()+nb_constraints()+nb_items()*nb_constraints());
+      }
+    int* get_pData() const {
+        return pData;
+      }
 
   public:
     /// Initialize
-    Spec(const char* s) : pData(find(s)), l(0), u(0) {
+    Spec(const Spec& s){
+        l=clower();
+        u=cupper();
+        
+        // Allocate memory for a new array
+        int* L = new int [s.nb_params()];
+        for (int i=0;i<s.nb_params();i++) {
+            L[i]=s.pdatai(i);
+        }
+        pData=L;
+      }
+    Spec(std::vector<int> problem,const char* s) :l(0),u(0) {
+      if (std::strlen(s)==0) {
+          int* L = new int [problem.size()];
+          for (int i=0;i<problem.size();i++) {
+              L[i]=problem[i];
+          }
+          this->pData=L;
+        }
+      else {
+          this->pData=find(s);
+      }
       if (valid()) {
         l = clower(); u = cupper();
       }
-    }
+      }
     /// Return lower bound
     int lower(void) const {
       return l;
@@ -149,54 +172,192 @@ namespace {
 class OptionsKnapsack: public InstanceOptions {
 public:
   bool activate_bound_computation;
+  bool activate_learning_prediction;
+  bool activate_heuristic;
   int K;
   float learning_rate;
   float init_value_multipliers;
-  OptionsKnapsack(const char* s, bool activate_bound_computation0, int K0, float learning_rate0, float init_value_multipliers0)
-    : InstanceOptions(s), activate_bound_computation(activate_bound_computation0), K(K0), learning_rate(learning_rate0), init_value_multipliers(init_value_multipliers0) {}
+  std::ofstream* outputFile;
+  bool write_samples;
+  const char* s;
+  std::vector<int> problem={};
+    OptionsKnapsack(bool activate_bound_computation0,
+    bool activate_learning_prediction0,
+    bool activate_heuristic0, 
+    int K0, float learning_rate0, 
+    float init_value_multipliers0, 
+    std::ofstream* outputFile_0, 
+    std::vector<int> problem0,
+    bool write_samples0=true,const char* s0="")
+    : InstanceOptions("MultiKnapsack"), s(s0), 
+    activate_bound_computation(activate_bound_computation0),
+    activate_learning_prediction(activate_learning_prediction0),  
+    activate_heuristic(activate_heuristic0), 
+    K(K0), learning_rate(learning_rate0), 
+    init_value_multipliers(init_value_multipliers0), 
+    outputFile(outputFile_0),
+    write_samples(write_samples0) {
+        if (problem0.size()>1) {
+            problem=problem0;
+        }
+    }
 };
 
-// TODO : update the multipliers with the article method
-class MultiKnapsack : public IntMaximizeScript {
+class MultiKnapsack : public IntMaximizeSpace {
 protected:
     const Spec spec; // Specification of the instance
-    BoolVarArray x; // Decision variables for each item
+    BoolVarArray variables; // Decision variables for each item
     IntVar z; // Variable for the objective function
     bool activate_bound_computation;
+    bool activate_learning_prediction;
+    bool activate_heuristic;
     int K;
     float learning_rate;
     float init_value_multipliers;
+    std::vector<int> order_branching; // Order of the items to branch on
     std::vector<std::vector<float>> multipliers; // Lagrangian multipliers shared between the nodes
+    std::ofstream* outputFileMK;
+    bool write_samples;
 public:
+
+  class NoneMax : public Brancher {
+  protected:
+  ViewArray<Int::BoolView> variables;
+  // choice definition
+  class PosVal : public Choice {
+  public:
+    int pos; int val;
+    PosVal(const NoneMax& b, int p, int v)
+      : Choice(b,2), pos(p), val(v) {}
+    virtual void archive(Archive& e) const {
+      Choice::archive(e);
+      e << pos << val;
+    }
+  };
+  public:
+  NoneMax(Home home, ViewArray<Int::BoolView>& variables0)
+    : Brancher(home), variables(variables0) {}
+
+  static void post(Home home, ViewArray<Int::BoolView>& variables) {
+    (void) new (home) NoneMax(home,variables);
+  }
+
+  virtual size_t dispose(Space& home) {
+    (void) Brancher::dispose(home);
+    return sizeof(*this);
+  }
+
+  NoneMax(Space& home, NoneMax& b)
+    : Brancher(home,b) {
+    variables.update(home,b.variables);
+  }
+
+  virtual Brancher* copy(Space& home) {
+    return new (home) NoneMax(home,*this);
+  }
+
+  // status
+  virtual bool status(const Space& home) const {
+    for (int i=0; i<variables.size(); i++)
+      if (!variables[i].assigned())
+        return true;
+    return false;
+  }
+  // choice
+  virtual Choice* choice(Space& home) {
+    bool activate_heuristic=static_cast<MultiKnapsack&>(home).activate_heuristic;
+    for (int i=0; true; i++){
+        int index;
+    if (activate_heuristic) {
+        index = static_cast<MultiKnapsack&>(home).order_branching[i]; }
+    else {
+        index=i;
+    }
+    if (!variables[index].assigned()){
+    return new PosVal(*this,index,variables[index].max());
+    } }
+    GECODE_NEVER;
+    return NULL;
+  }
+
+  virtual Choice* choice(const Space&, Archive& e) {
+    int pos, val;
+    e >> pos >> val;
+    return new PosVal(*this, pos, val);
+  }
+
+  // commit
+  virtual ExecStatus commit(Space& home,
+                            const Choice& c,
+                            unsigned int a) {
+    bool activate_bound=static_cast<MultiKnapsack&>(home).activate_bound_computation;
+    const PosVal& pv = static_cast<const PosVal&>(c);
+    int pos=pv.pos, val=pv.val;
+    if (a == 0){
+      ExecStatus temp = me_failed(variables[pos].eq(home,val)) ? ES_FAILED : ES_OK;
+      if (activate_bound)
+         static_cast<MultiKnapsack&>(home).more();
+      return temp;
+    }
+    else{
+      ExecStatus temp = me_failed(variables[pos].nq(home,val)) ? ES_FAILED : ES_OK;
+      if (activate_bound)
+        static_cast<MultiKnapsack&>(home).more();
+      return temp;
+    }
+  }
+
+  // print
+  virtual void print(const Space& home, const Choice& c,
+                     unsigned int a,
+                     std::ostream& o) const {
+    const PosVal& pv = static_cast<const PosVal&>(c);
+    int pos=pv.pos, val=pv.val;
+    if (a == 0)
+      o << "x[" << pos << "] = " << val;
+    else
+      o << "x[" << pos << "] != " << val;
+  }
+};
+
+void nonemax(Home home, const BoolVarArgs& variables) {
+  if (home.failed()) return;
+  ViewArray<Int::BoolView> y(home,variables);
+  NoneMax::post(home,y);
+}
 
   /// Actual model
   MultiKnapsack(const OptionsKnapsack& opt)
-  : IntMaximizeScript(opt),
-    spec(opt.instance()), 
-    x(*this, spec.nb_items(), 0, 1),
-    z(*this, spec.lower(), spec.upper()){
-      
+  : IntMaximizeSpace(),
+    spec(opt.problem,opt.s),
+    variables(*this, spec.nb_items(), 0, 1),
+    z(*this, spec.lower(), spec.upper()),
+    outputFileMK(opt.outputFile),
+    write_samples(opt.write_samples){
       int n = spec.nb_items();        // The number of items
       int m = spec.nb_constraints();  // The number of constraints
       int profits[n];                 // The profit of the items
       int capacities[m];              // The capacities of the knapsacks
-      int weights[m][n];              // The weights of the items in the knapsacks (one vector per knapsack)  
+      int weights[m][n];              // The weights of the items in the knapsacks (one vector per knapsack)
       this->activate_bound_computation = opt.activate_bound_computation; // Activate the bound computation at each node
+      this->activate_learning_prediction = opt.activate_learning_prediction; // Activate the learning prediction
+      this->activate_heuristic = opt.activate_heuristic; // Activate the heuristic to branch on the items
       this->K = opt.K;                // The number of iteration to find the optimal multipliers
       this->learning_rate = opt.learning_rate; // The learning rate to update the multipliers
       this->init_value_multipliers = opt.init_value_multipliers; // The starting value of the multipliers
-
+      
       std::vector<std::vector<float>> v; // help to initialize the local handle which will contain the multipliers and be shared between the nodes
       v.resize(n);
       for (int i = 0; i < n; ++i) {
           float sum = 0;
           v[i].resize(m);
           for (int j = 1; j < m; ++j) {
-              v[i][j] = init_value_multipliers;
-              sum += init_value_multipliers;
+              v[i][j] = - spec.profit(i) * 0.05f ;
+              sum += - spec.profit(i) * 0.05f; 
           }
           v[i][0] = sum;
       }
+
       LI multipliers(*this, v);
       this->multipliers = multipliers.get();
 
@@ -216,10 +377,29 @@ public:
           }
       }
 
+      this->order_branching.resize(n);
+
+      // order is the list of the index of items sorted by decreasing ratio between profit and weight
+      for (int i = 0; i < n; i++) {
+        order_branching[i] = i;
+      }
+
+      std::sort(order_branching.begin(), order_branching.end(), [&](int i, int j) { 
+        float sum_i = 0;
+        float sum_j = 0;
+        for (int k = 0; k < m; k++) {
+          sum_i += weights[k][i];
+          sum_j += weights[k][j];
+        }
+        float ratio_i = profits[i] / sum_i;
+        float ratio_j = profits[j] / sum_j;
+        return ratio_i > ratio_j;
+      });
+
       // The objective function
       IntVarArgs profits_x;
       for (int i = 0; i < n; i++) {
-          profits_x << expr(*this, profits[i] * x[i]);
+        profits_x << expr(*this, profits[i] * variables[i]);
       }
       z = expr(*this, sum(profits_x));
 
@@ -227,30 +407,24 @@ public:
       for (int j = 0; j < m; j++) {
           IntVarArgs weight_x;
           for (int i = 0; i < n; i++) {
-              weight_x << expr(*this, weights[j][i] * x[i]);
+              weight_x << expr(*this, weights[j][i] * variables[i]);
           }
-          linear(*this, weight_x, IRT_LQ, capacities[j]);          
+          linear(*this, weight_x, IRT_LQ, capacities[j]);
       }
 
-      if (activate_bound_computation) {
-        for (int i = 0; i<x.size(); i++) {
-          branch(*this, x[i], BOOL_VAL_MAX());
-          branch(*this, &MultiKnapsack::post); // compute the bound at each node
-        }
-      }
-      else {
-        branch(*this, x, BOOL_VAR_NONE(), BOOL_VAL_MAX());
-      }
+    nonemax(*this, variables);
   }
 
+  void compare(const Space& s, std::ostream& os) const {
+}
+
   void more(void) { // compute the bound at each node after every branching
-    float copy_learning_rate = learning_rate;
     int nb_items = spec.nb_items();
     int nb_constraints = spec.nb_constraints();
     int capacity = spec.capacity(0, nb_items);
     int weights[nb_items];
     int val[nb_items];
-
+    float final_fixed_bounds = 0.0f;
     for (int i = 0; i < nb_items; i++) {
       weights[i] = spec.weight(0, i, nb_items, nb_constraints);
       val[i] = spec.profit(i);
@@ -261,31 +435,182 @@ public:
 
     // store the value of the variable in the solution during the dynamic programming algo to update the multipliers
     int** value_var_solution = new int*[rows];
+
+    // init value_var_solution with 0
     for (int i = 0; i < rows; ++i) {
         value_var_solution[i] = new int[cols];
+        for (int j = 0; j < cols; ++j) {
+            value_var_solution[i][j] = 0;
+        }
+    }
+    int* diff_var_solution =new int[rows-1]; // store the difference between the value of the variable and the value of the other variables in the solution
+
+    float final_bound = std::numeric_limits<float>::max();
+    float bound_test[K];
+    
+    std::vector<int> not_fixed_variables;
+    std::vector<int> fixed_variables;
+
+    std::string dicstr(nb_items,' ');
+
+    for (int k = 0; k < nb_items; k++){
+      if (variables[k].size()==2) {
+        dicstr[k]='2';
+        not_fixed_variables.push_back(k);
+        for (int j=0;j<cols;j++) {
+                value_var_solution[k][j]=0; }
+      }
+
+    else{
+      fixed_variables.push_back(k);
+      if (variables[k].val()==1) { 
+          dicstr[k]='1';
+            for (int j=0;j<cols;j++) {
+                value_var_solution[k][j]=1; }
+        }
+      else {
+          dicstr[k]='0';
+      }
+    }
     }
 
-    float final_bound = 0.0f;
-    float bound_test[K];
+    int size_unfixed=not_fixed_variables.size();
+    int* node_problem=new int[size_unfixed*(nb_constraints+1)+nb_constraints+2 + 1 + 1];
 
-    for (int k=0; k<K; k++) { // We repeat the dynamic programming algo to solve the knapsack problem 
-                              // and at each iteration we update the value of the Lagrangian multipliers
-      float bound_iter = 0.0f;
+    node_problem[0]=nb_constraints;
+    node_problem[1]=size_unfixed;
+
+    for (int k=0;k<size_unfixed;k++) {
+        node_problem[2+k]=spec.profit(not_fixed_variables[k]);
+      }
+
+    for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+        int capacity_unfixed=spec.capacity(idx_constraint,nb_items);
+
+        for (int i=0;i<fixed_variables.size();i++) {
+            capacity_unfixed-=spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints)*variables[fixed_variables[i]].val();
+        }
+
+        node_problem[2+size_unfixed+idx_constraint]=capacity_unfixed;
+    }
+
+    for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+        for (int i=0;i<size_unfixed;i++) {
+            node_problem[2+(idx_constraint+1)*size_unfixed+nb_constraints+i]=spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
+        }
+    }
+
+    if (activate_learning_prediction){
+      std::vector<torch::jit::IValue> inputs;
+      // create a tensor with
+      // at::Tensor nodes = torch::zeros({nb_constraints * size_unfixed, 6});
+      std::vector<float> nodes;
+      for (int j=0;j<nb_constraints;j++) {
+          for (int i=0;i<size_unfixed;i++) {
+            nodes.push_back(node_problem[2+i]);
+            nodes.push_back(node_problem[2+ size_unfixed  + nb_constraints + size_unfixed*j +i]);
+            nodes.push_back((float)std::max((float)node_problem[2+ + size_unfixed + + nb_constraints + size_unfixed*j +i],1.0f) / (float)std::max((float)node_problem[2 + size_unfixed + j], 1.0f));
+            nodes.push_back((float)node_problem[2 + i] / (float)std::max((float)node_problem[2+ + size_unfixed + nb_constraints +size_unfixed*j +i],1.0f));
+            nodes.push_back(i);
+            nodes.push_back(j);
+          }
+        }
+      at::Tensor nodes_t = torch::from_blob(nodes.data(), {nb_constraints * size_unfixed , 6}).to(torch::kFloat32);
+      inputs.push_back(nodes_t);
+
+      std::vector<std::vector<int64_t>> edges_indexes_vec(2, std::vector<int64_t>(nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed));
+      std::vector<std::vector<int64_t>> edges_attr_vec(2, std::vector<int64_t>(nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed));
+      std::vector<float> edges_weights_vec(nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed);
+
+      int compteur = 0;
+      for (int k = 0; k < nb_constraints; k++) {
+        for (int i = 0; i < size_unfixed; i++) {
+          for (int j = i + 1; j < size_unfixed; j++) {
+            edges_indexes_vec[0][compteur] = k * size_unfixed + i;
+            edges_indexes_vec[1][compteur] = k * size_unfixed + j;
+            edges_weights_vec[compteur] = 1.0f / (float)size_unfixed;
+            edges_attr_vec[0][compteur] = 0;
+            edges_attr_vec[1][compteur] = 1;
+            
+            compteur++;
+          }
+        }
+      }
+      for (int k = 0; k < size_unfixed; k++) {
+        for (int i = 0; i < nb_constraints; i++) {
+          edges_indexes_vec[0][compteur] = i * size_unfixed + k;
+          edges_indexes_vec[1][compteur] = k;
+          edges_weights_vec[compteur] = 1;
+          // edges_attr_vec[0][compteur] = 1;
+          // edges_attr_vec[1][compteur] = 0;
+          compteur++;
+        }
+      }
+      // print the elements of edges_indexes_vec.data()
+      at::Tensor edge_first = torch::from_blob(edges_indexes_vec[0].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edge_second = torch::from_blob(edges_indexes_vec[1].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edges_indexes = torch::cat({edge_first, edge_second}, 0).reshape({2, nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed});
+      at::Tensor edges_attr_first = torch::from_blob(edges_attr_vec[0].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edges_attr_second = torch::from_blob(edges_attr_vec[1].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edges_attr = torch::cat({edges_attr_first, edges_attr_second}, 0).reshape({2, nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed});
+      at::Tensor edges_weights = torch::from_blob(edges_weights_vec.data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kFloat32));
+
+      inputs.push_back(edges_indexes);
+      //inputs.push_back(edges_weights);
+      // transpose edges_attr
+      inputs.push_back(edges_attr.transpose(0, 1));
+      at::Tensor intermediate_output = module_1.forward(inputs).toTensor();
+
+
+      at::Tensor mean = intermediate_output.mean(0).repeat({nb_constraints * size_unfixed, 1});
+
+      std::vector<torch::jit::IValue> intermediate_inputs;
+
+      intermediate_inputs.push_back(torch::cat({intermediate_output, mean}, 1));
+      at::Tensor multipliers = module_2.forward(intermediate_inputs).toTensor();
+
+      // create a vector of multipliers
+      std::vector<float> multipliers_vec;
+      multipliers_vec.resize( nb_constraints * size_unfixed);
+      for (int i = 0; i < nb_constraints * size_unfixed; i++) {
+        multipliers_vec[i] = multipliers[i].item<float>();
+      }
+
+      float final_bound = 0.0f;
       std::vector<SubProblem> subproblems;
-      // we create one subproblem for each knapsack constraint
+
+        // we create one subproblem for each knapsack constraint
       for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
         SubProblem subproblem;
         subproblem.weights_sub = new int[nb_items];
         subproblem.val_sub = new float[nb_items];
         subproblem.capacity = spec.capacity(idx_constraint, nb_items);
-        for (int i = 0; i < nb_items; i++) {
-          subproblem.weights_sub[i] = spec.weight(idx_constraint, i, nb_items, nb_constraints);
+
+        for (int i = 0; i < fixed_variables.size(); i++) {
+          subproblem.weights_sub[i] = spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints);
+
           if (idx_constraint == 0) {
-            subproblem.val_sub[i] = spec.profit(i) + multipliers[i][idx_constraint];
+            subproblem.val_sub[i] = spec.profit(fixed_variables[i]);
           }
+
           else {
-            subproblem.val_sub[i] = -multipliers[i][idx_constraint];
-          }        
+            subproblem.val_sub[i] = 0.0f;
+          }
+        }
+        for (int i = 0; i < not_fixed_variables.size(); i++) {
+          subproblem.weights_sub[i + fixed_variables.size()] = spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
+
+          if (idx_constraint == 0) {
+            float mult = 0.0f;
+            for (int j = 1; j < nb_constraints; j++) {
+              mult += multipliers_vec[i + size_unfixed * j];
+            }
+            subproblem.val_sub[i + fixed_variables.size()] = spec.profit(not_fixed_variables[i]) + mult ;
+          }
+
+          else {
+            subproblem.val_sub[i + fixed_variables.size()] = - multipliers_vec[i + size_unfixed * idx_constraint];
+          }
         }
         subproblem.idx_constraint = idx_constraint;
         subproblems.push_back(subproblem);
@@ -293,56 +618,145 @@ public:
 
       for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
         SubProblem subproblem = subproblems[id_subproblem];
-        float bound = dp_knapsack(subproblem.capacity, 
-                                  subproblem.weights_sub, 
-                                  subproblem.val_sub, 
-                                  nb_items, nb_constraints, 
-                                  subproblem.idx_constraint, 
-                                  value_var_solution, 
-                                  false);
-        bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
-      }
-      final_bound = bound_iter;
-      bound_test[k] = bound_iter;
-
-      if (k >= 4) { // we divide by 2 the learning rate if the bound doesn't change 5 times in a row
-        float b1 = bound_test[k];
-        float b2 = bound_test[k-1];
-        float b3 = bound_test[k-2];
-        float b4 = bound_test[k-3];
-        float b5 = bound_test[k-4];
-
-        bool cond1 = (fabs(b1 - b2) <= 0.0001 * std::max(fabs(b1), fabs(b2)));
-        bool cond2 = (fabs(b2 - b3) <= 0.0001 * std::max(fabs(b2), fabs(b3)));
-        bool cond3 = (fabs(b3 - b4) <= 0.0001 * std::max(fabs(b3), fabs(b4)));
-        bool cond4 = (fabs(b4 - b5) <= 0.0001 * std::max(fabs(b4), fabs(b5)));
-
-        if (cond1 && cond2 && cond3 && cond4) {
-          learning_rate = learning_rate/2;
+        float weight_fixed = 0.0f;
+    
+        for (int k = 0; k < fixed_variables.size(); k++){
+          weight_fixed+=subproblem.weights_sub[k]* variables[fixed_variables[k]].val();
         }
+
+        float bound = dp_knapsack(subproblem.capacity - weight_fixed,
+                                    subproblem.weights_sub + fixed_variables.size(),
+                                    subproblem.val_sub + fixed_variables.size(),
+                                    nb_items - fixed_variables.size(), nb_constraints,
+                                    subproblem.idx_constraint,
+                                    value_var_solution,
+                                    not_fixed_variables,
+                                    false);
+
+        float fixed_bound = 0.0f;
+
+        for (int k = 0; k< fixed_variables.size();k++){
+            fixed_bound += subproblem.val_sub[k] * variables[fixed_variables[k]].val();
+        }
+        final_fixed_bounds += fixed_bound;
+        final_bound += bound + fixed_bound; // sum all the bound of the knapsack sub-problem to update the multipliers
+      
       }
-  }
-
-  // Update the multipliers (Quentin method with constant learning rate) TODO : implement the article method with adaptive learning rate
-  for (int i = 0; i < rows; ++i) {
-    float sum = 0;
-    for (int j = 1; j < cols; ++j) {
-      multipliers[i][j] = multipliers[i][j] - learning_rate * (value_var_solution[i][0] - value_var_solution[i][j]);
-      sum += multipliers[i][j];
+      //std::cout<<final_bound<<std::endl;
+      //final_bound = 10000.0f;
+      // We impose the constraint z <= final_bound
+      rel(*this, z <= final_bound); 
+   
     }
-    multipliers[i][0] = sum;
-  }
+    else{
+      
+      for (int k=0; k<K; k++) { // We repeat the dynamic programming algo to solve the knapsack problem
+                                // and at each iteration we update the value of the Lagrangian multipliers
+        final_fixed_bounds = 0.0f;
+        float bound_iter = 0.0f;
+        std::vector<SubProblem> subproblems;
 
-  // We impose the constraint z <= final_bound
-  rel(*this, z <= final_bound);
+        // we create one subproblem for each knapsack constraint
+        for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+          SubProblem subproblem;
+          subproblem.weights_sub = new int[nb_items];
+          subproblem.val_sub = new float[nb_items];
+          subproblem.capacity = spec.capacity(idx_constraint, nb_items);
 
-  learning_rate = copy_learning_rate;
+          for (int i = 0; i < fixed_variables.size(); i++) {
+            subproblem.weights_sub[i] = spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints);
 
-  for (int i = 0; i < rows; ++i) {
-    delete[] value_var_solution[i];
-  }
+            if (idx_constraint == 0) {
+              subproblem.val_sub[i] = spec.profit(fixed_variables[i]) + multipliers[fixed_variables[i]][idx_constraint];
+            }
 
-  delete[] value_var_solution;  
+            else {
+              subproblem.val_sub[i] = -multipliers[fixed_variables[i]][idx_constraint];
+            }
+          }
+          for (int i = 0; i < not_fixed_variables.size(); i++) {
+            subproblem.weights_sub[i + fixed_variables.size()] = spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
+
+            if (idx_constraint == 0) {
+              subproblem.val_sub[i + fixed_variables.size()] = spec.profit(not_fixed_variables[i]) + multipliers[not_fixed_variables[i]][idx_constraint];
+            }
+
+            else {
+              subproblem.val_sub[i + fixed_variables.size()] = -multipliers[not_fixed_variables[i]][idx_constraint];
+            }
+          }
+          subproblem.idx_constraint = idx_constraint;
+          subproblems.push_back(subproblem);
+        }
+
+        for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
+          SubProblem subproblem = subproblems[id_subproblem];
+          float weight_fixed = 0.0f;
+    
+          for (int k = 0; k < fixed_variables.size(); k++){
+            weight_fixed+=subproblem.weights_sub[k]* variables[fixed_variables[k]].val();
+          }
+
+          float bound = dp_knapsack(subproblem.capacity - weight_fixed,
+                                    subproblem.weights_sub + fixed_variables.size(),
+                                    subproblem.val_sub + fixed_variables.size(),
+                                    nb_items - fixed_variables.size(), nb_constraints,
+                                    subproblem.idx_constraint,
+                                    value_var_solution,
+                                    not_fixed_variables,
+                                    false);
+
+          float fixed_bound = 0.0f;
+
+          for (int k = 0; k< fixed_variables.size();k++){
+              fixed_bound += subproblem.val_sub[k] * variables[fixed_variables[k]].val();
+          }
+          final_fixed_bounds += fixed_bound;
+
+          bound_iter += bound + fixed_bound; // sum all the bound of the knapsack sub-problem to update the multipliers
+      
+        }
+        final_bound = std::min(final_bound, bound_iter);
+        bound_test[k] = bound_iter;
+
+        // Update the multipliers (Quentin method with constant learning rate) TODO : implement the article method with adaptive learning rate
+
+        for (int i = 0; i < rows; ++i) {
+          float sum = 0;
+          for (int j = 1; j < cols; ++j) {
+            multipliers[i][j] = multipliers[i][j] -  learning_rate *  (value_var_solution[i][0] - value_var_solution[i][j]);
+            sum += multipliers[i][j];
+          }
+          multipliers[i][0] = sum;
+        }
+
+        //std::cout << "Iteration " << k << " : " << final_bound << std::endl;
+        // We impose the constraint z <= final_bound
+        rel(*this, z <= final_bound); 
+      }
+    }
+
+    node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2] = final_fixed_bounds;
+    node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2 + 1] = final_bound;
+    if (write_samples) {
+      if ((set_nodes.count(dicstr)==0)  ) { // and (size_unfixed>=5)  and (size_unfixed<=30)
+          set_nodes.insert(dicstr);
+
+          if (outputFileMK->is_open()) {
+          for (int i=0;i<size_unfixed*(nb_constraints+1)+nb_constraints+3;i++) {
+              *outputFileMK << node_problem[i]<<",";
+            }
+
+          *outputFileMK << node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+3]<<"\n";
+          } 
+        } 
+      }
+
+    for (int i = 0; i < rows; ++i) {
+      delete[] value_var_solution[i];
+    }
+
+    delete[] value_var_solution;
   }
 
   static void post(Space& home) {
@@ -355,14 +769,19 @@ public:
   }
   /// Constructor for cloning \a s
   MultiKnapsack(MultiKnapsack& s)
-    : IntMaximizeScript(s), spec(s.spec) {
-    x.update(*this, s.x);
+    : IntMaximizeSpace(s), spec(s.spec) {
+    variables.update(*this, s.variables);
     z.update(*this, s.z);
+    this->order_branching = s.order_branching;
     this->activate_bound_computation = s.activate_bound_computation;
+    this->activate_learning_prediction = s.activate_learning_prediction;
+    this->activate_heuristic = s.activate_heuristic;
     this->K = s.K;
     this->learning_rate = s.learning_rate;
     this->init_value_multipliers = s.init_value_multipliers;
     this->multipliers = s.multipliers;
+    this->outputFileMK=s.outputFileMK;
+    this->write_samples=s.write_samples;
   }
   /// Copy during cloning
   virtual Space*
@@ -372,434 +791,174 @@ public:
 
   virtual void constrain(const Space& _b) { // compute the bound at each leaf node giving a solution
     const MultiKnapsack& b = static_cast<const MultiKnapsack&>(_b);
-
+    std::cout<<"solution: "<<b.z<<std::endl;
     // We impose the constraint z >= current sol
     rel(*this, z >= b.z);
-
-    if (activate_bound_computation){
-      float copy_learning_rate = learning_rate;
-      int nb_items = spec.nb_items();
-      int nb_constraints = spec.nb_constraints();
-      int weights[nb_items];
-      int val[nb_items];
-
-      for (int i = 0; i < nb_items; i++) {
-        weights[i] = spec.weight(0, i, nb_items, nb_constraints);
-        val[i] = spec.profit(i);
-      }
-
-      int rows = nb_items;
-      int cols = nb_constraints;
-
-      // Allocate memory for 2D array
-      // value of the variables of the solution to update the multipliers
-      int** value_var_solution = new int*[rows];
-      for (int i = 0; i < rows; ++i) {
-          value_var_solution[i] = new int[cols];
-      }
-
-      float final_bound = 0.0f;
-      float bound_test[K];
-
-      for (int k=0; k<K; k++) { // We repeat the dynamic programming algo to solve the knapsack problem 
-                                // and at each iteration we update the value of the Lagrangian multipliers
-        float bound_iter = 0.0f;
-        std::vector<SubProblem> subproblems;
-        // we create one subproblem for each knapsack constraint
-        for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
-          SubProblem subproblem;
-          subproblem.weights_sub = new int[nb_items];
-          subproblem.val_sub = new float[nb_items];
-          subproblem.capacity = spec.capacity(idx_constraint, nb_items);
-          for (int i = 0; i < nb_items; i++) {
-            subproblem.weights_sub[i] = spec.weight(idx_constraint, i, nb_items, nb_constraints);
-            if (idx_constraint == 0) {
-              subproblem.val_sub[i] = spec.profit(i) + multipliers[i][idx_constraint];
-            }
-            else {
-              subproblem.val_sub[i] = -multipliers[i][idx_constraint];
-            }        
-          }
-          subproblem.idx_constraint = idx_constraint;
-          subproblems.push_back(subproblem);
-        }
-
-        for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
-          SubProblem subproblem = subproblems[id_subproblem];
-          float bound = dp_knapsack(subproblem.capacity, 
-                                    subproblem.weights_sub, 
-                                    subproblem.val_sub, 
-                                    nb_items, 
-                                    nb_constraints, 
-                                    subproblem.idx_constraint, 
-                                    value_var_solution, 
-                                    false);
-          bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
-        }
-        final_bound = bound_iter;
-        bound_test[k] = bound_iter;
-
-        if (k >= 4) { // we divide by 2 the learning rate if the bound doesn't change 5 times in a row
-          float b1 = bound_test[k];
-          float b2 = bound_test[k-1];
-          float b3 = bound_test[k-2];
-          float b4 = bound_test[k-3];
-          float b5 = bound_test[k-4];
-
-          bool cond1 = (fabs(b1 - b2) <= 0.0001 * std::max(fabs(b1), fabs(b2)));
-          bool cond2 = (fabs(b2 - b3) <= 0.0001 * std::max(fabs(b2), fabs(b3)));
-          bool cond3 = (fabs(b3 - b4) <= 0.0001 * std::max(fabs(b3), fabs(b4)));
-          bool cond4 = (fabs(b4 - b5) <= 0.0001 * std::max(fabs(b4), fabs(b5)));
-
-          if (cond1 && cond2 && cond3 && cond4) {
-            learning_rate = learning_rate/2;
-          }
-        }
-
-        // TODO : update the multipliers (article method)
-
-        // Update the multipliers (Quentin method)
-        for (int i = 0; i < rows; ++i) {
-          float sum = 0;
-          for (int j = 1; j < cols; ++j) {
-            multipliers[i][j] = multipliers[i][j] - learning_rate * (value_var_solution[i][0] - value_var_solution[i][j]);
-            sum += multipliers[i][j];
-          }
-          multipliers[i][0] = sum;
-        }
-      }
-
-      // We impose the constraint z <= final_bound
-      rel(*this, z <= final_bound);
-
-      learning_rate = copy_learning_rate;
-
-      for (int i = 0; i < rows; ++i) {
-          delete[] value_var_solution[i];
-      }
-
-      delete[] value_var_solution;
-    }
 }
 
-float dp_knapsack(int capacity, 
-                  int weights[], 
-                  float val[], 
-                  int nb_items, 
-                  int nb_constraints, 
-                  int idx_constraint, 
-                  int** value_var_solution, 
-                  bool verbose=false) { 
-  // work only for 0-1 knapsack
-  // Use dynamic programming to solve a 0-1 knapsack problem
-  // (cf article 'A Dynamic Programming Approach for Consistency and Propagation for Knapsack Constraints' by MICHAEL A. TRICK)
-  int i, w;
-
-  // Define the dimensions of the graph, reverse graph and reduced graph
-  int rows = capacity+1;
-  int cols = nb_items+1;
-
-  // Allocate memory for the graph, reverse graph and reduced graph
-  int** graph = new int*[rows];
-  for (int i = 0; i < rows; ++i) {
-      graph[i] = new int[cols]();
-  }
-
-  int** reverse_graph = new int*[rows];
-  for (int i = 0; i < rows; ++i) {
-      reverse_graph[i] = new int[cols]();
-  }
-
-  int** reduced_graph = new int*[rows];
-  for (int i = 0; i < rows; ++i) {
-      reduced_graph[i] = new int[cols]();
-  }
-
-  // we update the graph 
-  for (i = 0; i <= nb_items; i++) {
-    for (w = 0; w <= capacity; w++) {
-      if (i==0 && w==0) { 
-        graph[w][i] = 1; // initialize the first row and column to 0
-      } else if (i>0) {
-          if (graph[w][i-1] == 1){
-            if (w + weights[i-1]*0 <= capacity) { // test for xi = 0
-              graph[w+weights[i-1]*0][i] = 1;
-            } 
-            if (w + weights[i-1]*1 <= capacity){ // test for xi = 1
-              graph[w + weights[i-1]*1][i] = 1;
+float dp_knapsack(int capacity,
+                  int weights[],
+                  float val[],
+                  int nb_items,
+                  int nb_constraints,
+                  int idx_constraint,
+                  int** value_var_solution,
+                  std::vector<int>& not_fixed_variables,
+                  bool verbose=false) {
+    std::vector<std::vector<float>> dp(capacity + 1, std::vector<float>(nb_items + 1, 0));
+    for (int i = 1; i <= nb_items; ++i) {
+        for (int w = 0; w <= capacity; ++w) {
+            if (weights[i - 1] <= w) {
+                dp[w][i] = std::max(dp[w][i - 1], dp[w - weights[i - 1]][i - 1] + val[i - 1]);
+            } else {
+                dp[w][i] = dp[w][i - 1];
             }
         }
-      }
     }
-  }
-
-  // We print the graph
-  if (verbose){
-    std::cout << "graph updated " << std::endl;
-    std::cout << "graph:" << std::endl;
-    for (int i = rows-1; i >= 0; i--) {
-        for (int j = 0; j < cols; j++) {
-            std::cout << graph[i][j] << " ";
+    // Backtracking to find selected items
+    int w = capacity;
+    for (int i = nb_items; i > 0; --i) {
+        if (dp[w][i] != dp[w][i - 1]) {
+            value_var_solution[not_fixed_variables[i - 1]][idx_constraint] = 1;
+            w -= weights[i - 1];
         }
-        std::cout << std::endl;
     }
-  }
-
-  // we check if there is at least one solution by testing if the last column is full of 0
-  int test_last_column=0;
-  for (w=0; w<=capacity; w++) {
-    if (graph[w][nb_items] == 1) {
-      break;
-    }
-    else {
-      test_last_column++;
-    }
-  }
-  if (test_last_column == capacity+1) {
-    return 0;
-  }
-
-  // we update the reverse graph
-  for (i = nb_items; i >= 0; i--) {
-    for (w = 0; w <= capacity; w++) {
-      if (i==nb_items) {
-        reverse_graph[w][i] = 1; // initialize the last column to 1
-      } else if (i<nb_items) {
-        if (reverse_graph[w][i+1] == 1){
-          if (w - weights[i]*0 >= 0) { // test for xi = 0
-            reverse_graph[w-weights[i]*0][i] = 1;
-          }
-          if (w - weights[i]*1 >= 0){ // test for xi = 1
-            reverse_graph[w-weights[i]*1][i] = 1;
-          }
-        }
-      }
-    }
-  }
-
-  // We print the reverse graph
-  if (verbose){
-    std::cout << "reverse graph updated " << std::endl;  
-    std::cout << "reverse graph:" << std::endl;
-    for (int i = rows-1; i >= 0; i--) {
-        for (int j = 0; j < cols; j++) {
-            std::cout << reverse_graph[i][j] << " ";
-        }
-        std::cout << std::endl;
-    }
-  }
-
-  // get the reduced graph
-  // get the id of the nodes present in the reduced graph
-  std::vector<std::pair<int, int>> id_nodes_in_reduced_graph;
-  for (i = 0; i <= nb_items; i++) {
-    for (w = 0; w <= capacity; w++) {
-      if (graph[w][i] == 1 && reverse_graph[w][i] == 1) {
-        reduced_graph[w][i] = 1;
-        id_nodes_in_reduced_graph.push_back(std::make_pair(w,i));
-      }
-      else {
-        reduced_graph[w][i] = 0;
-      }
-    }
-  }
-
-  if (verbose){
-    std::cout << "reduced graph updated " << std::endl;
-    std::cout << "reduced graph:" << std::endl;
-    for (int i = rows-1; i >= 0; i--) {
-        for (int j = 0; j < cols; j++) {
-            std::cout << reduced_graph[i][j] << " ";
-        }
-        std::cout << std::endl;
-    }
-
-    std::cout << "id_nodes_in_reduced_graph:" << std::endl;
-    for (const auto& pair : id_nodes_in_reduced_graph) {
-        std::cout << "(" << pair.first << ", " << pair.second << ")" << std::endl;
-    }
-  }
-
-  std::vector<LabelEdge> label_edges;
-  for (const auto& pair : id_nodes_in_reduced_graph) {
-      // Search for the element in the vector
-      int w = pair.first;
-      int i = pair.second;
-      // first we assign the 0 because if a item has a weight of 0 in this constraint we want to take it so we overwright with a 1
-      if (weights[i-1] == 0) {
-        label_edges.push_back({std::make_pair(w, i-1), pair, 1});
-      }
-      else {
-        auto it2 = find(id_nodes_in_reduced_graph.begin(), id_nodes_in_reduced_graph.end(), std::make_pair(w, i-1));
-        if (it2 != id_nodes_in_reduced_graph.end()) {
-          label_edges.push_back({std::make_pair(w, i-1), pair, 0});
-        }
-
-        auto it = find(id_nodes_in_reduced_graph.begin(), id_nodes_in_reduced_graph.end(), std::make_pair(w-weights[i-1], i-1));
-        if (it != id_nodes_in_reduced_graph.end()) {
-          label_edges.push_back({std::make_pair(w-weights[i-1], i-1), pair, 1});
-        }
-      }
-  }
-
-  if (verbose){
-    std::cout << "label_edges:" << std::endl;
-    for (const auto& label_edge : label_edges) {
-        std::cout << "(" << label_edge.pair1.first << ", " << label_edge.pair1.second << ") -> (" << label_edge.pair2.first << ", " << label_edge.pair2.second << ") : " << label_edge.label << std::endl;
-    }
-  }
-
-  std::vector<CostEdge> cost_edges;
-  for (const auto& label_edge : label_edges) {
-    std::pair<int, int> pair1 = label_edge.pair1;
-    std::pair<int, int> pair2 = label_edge.pair2;
-    int label = label_edge.label;
-    if (label == 1) {
-      int idx_variable = pair2.second-1;
-      cost_edges.push_back({pair1, pair2, val[idx_variable]});
-    }
-    else {
-      cost_edges.push_back({pair1, pair2, 0});
-    }
-  }
-
-  if (verbose){
-    std::cout << "cost_edges:" << std::endl;
-    for (const auto& cost_edge : cost_edges) {
-        std::cout << "(" << cost_edge.pair1.first << ", " << cost_edge.pair1.second << ") -> (" << cost_edge.pair2.first << ", " << cost_edge.pair2.second << ") : " << cost_edge.cost << std::endl;
-    }
-  }
-
-  std::vector<Path> paths;
-  std::vector<float> costs;
-
-  for (int i=cost_edges.size()-1; i>=0; i--) {
-    std::pair<int, int> final_node = cost_edges[i].pair2;
-    if (final_node.second == nb_items) { // it's an edge to the final node of a path
-      std::vector<CostEdge> new_path;
-      new_path.push_back(cost_edges[i]);
-      float cost_path = cost_edges[i].cost;
-      std::pair<int, int>node_to_find = cost_edges[i].pair1;
-      for (int j=i-1; j>=0; j--) {
-        if (cost_edges[j].pair2 == node_to_find) {
-          new_path.push_back(cost_edges[j]);
-          cost_path += cost_edges[j].cost;
-          node_to_find = cost_edges[j].pair1;
-        }
-      }
-      paths.push_back({new_path, cost_path});
-      costs.push_back(cost_path);
-    }
-  }
-
-  if (verbose){
-    std::cout << "paths:" << std::endl;
-    for (const auto& path : paths) {
-        std::cout << "path:" << std::endl;
-        for (const auto& cost_edge : path.path) {
-            std::cout << "(" << cost_edge.pair1.first << ", " << cost_edge.pair1.second << ") -> (" << cost_edge.pair2.first << ", " << cost_edge.pair2.second << ") : " << cost_edge.cost << std::endl;
-        }
-        std::cout << "cost:" << path.cost << std::endl;
-      }
-  }
-
-  // Get the best solution among all the paths in the reduced graph, the path with the higer cost
-  Path best_path;
-  auto max_cost_iterator = std::max_element(costs.begin(), costs.end());
-  int index_max_cost = max_cost_iterator - costs.begin();
-  best_path = paths[index_max_cost];
-
-  
-  if (verbose){
-    std::cout << "best_path:" << best_path.cost << std::endl;
-    for (const auto& cost_edge : best_path.path) {
-        std::cout << "(" << cost_edge.pair1.first << ", " << cost_edge.pair1.second << ") -> (" << cost_edge.pair2.first << ", " << cost_edge.pair2.second << ") : " << cost_edge.cost << std::endl;
-    }
-  }
-
-  for (const auto& cost_edge : best_path.path) {
-    if (cost_edge.pair2.second>0) {
-      if (idx_constraint == 0) { // in the first constraint we take the items for which the edge has a positive cost (c + sum(multipliers))
-        if (cost_edge.cost > 0){
-          value_var_solution[cost_edge.pair2.second-1][idx_constraint] = 1;   
-        }
-        else {
-          value_var_solution[cost_edge.pair2.second-1][idx_constraint] = 0;
-        }
-      } 
-      else { // in the others constraints we take the items for which the edge has a negative cost (-multiplier)
-        if (cost_edge.cost < 0){
-          value_var_solution[cost_edge.pair2.second-1][idx_constraint] = 1;
-        }
-        else {
-          value_var_solution[cost_edge.pair2.second-1][idx_constraint] = 0;
-        }
-      }
-    }
-  }
-
-  // get the bound of the knapsack sub-problem
-  float bound = best_path.cost;
-
-  // Deallocate memory
-  for (int i = 0; i < rows; ++i) {
-      delete[] graph[i];
-      delete[] reverse_graph[i];
-      delete[] reduced_graph[i];
-  }
-  delete[] graph;
-  delete[] reverse_graph;
-  delete[] reduced_graph;
-
-  return bound;
+    return dp[capacity][nb_items];
 }
 
   /// Print solution
   virtual void
   print(std::ostream& os) const {
     os << "z: " << z << std::endl;
-    os << "x: " << x << std::endl;
+    os << "variables: " << variables << std::endl;
   }
 };
 
 int main(int argc, char* argv[]) {
-  bool activate_bound_computation = false;
-  int K = 6;
-  float learning_rate = 0.01f;
+
+  if (argc != 2) {
+     std::cerr << "usage: example-app </Users/dariusdabert/Downloads/traced_resnet_model.pt>\n";
+     //return -1;
+   }
+
+  try {
+    // Deserialize the ScriptModule from a file using torch::jit::load().
+
+    module_1 = torch::jit::load(argv[1]);
+    module_2 = torch::jit::load(argv[2]);
+
+  }
+  catch (const c10::Error& e) {
+    std::cerr << "error with forward pass \n";
+    //return -1;
+  }
+
+  std::cout << "ok\n";
+
+  bool activate_bound_computation = true;
+  bool activate_learning_prediction = true;
+  bool activate_heuristic = true;
+  bool write_samples = false;
+  int K = 60;
+  float learning_rate = 0.2f;
   float init_value_multipliers = 1.0f;
-  OptionsKnapsack opt("MultiKnapsack", activate_bound_computation, K, learning_rate, init_value_multipliers);
-  opt.instance(name[0]);
-  opt.solutions(0);
-  opt.parse(argc,argv);
-  IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
+
+  for (int i = 0; i < 1; i++) {
+    std::ifstream inputFilea("Data/" + (std::string)name[i]+ ".txt");
+    if (write_samples){
+      std::ofstream outputFilea((std::string)name[i]+".txt");
+
+      std::string line;
+      std::vector<int> problem;
+      std::vector<int> numbers;
+      int j =1;
+
+      while (std::getline(inputFilea, line)) {
+
+        //std::ofstream outputFilea(std::to_string(j) + ".txt");
+
+        set_nodes.clear();
+        std::vector<int> problem;
+        std::istringstream iss(line);
+        std::string substring;
+        while (std::getline(iss, substring, ',')) {
+                problem.push_back(std::stoi(substring));
+            }
+        std::cout<<""<<std::endl;
+        OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_learning_prediction, activate_heuristic, K,learning_rate,init_value_multipliers, &outputFilea , problem, true);
+        opt.instance();
+        opt.solutions(0);
+        opt.parse(argc,argv);
+        IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
+        j++;
+        }
+        outputFilea.close();
+
+    }
+
+    else{
+      std::string line;
+      std::vector<int> problem;
+      std::vector<int> numbers;
+      int j =1;
+
+      while (std::getline(inputFilea, line)) {
+        std::vector<int> problem;
+        std::istringstream iss(line);
+        std::string substring;
+        while (std::getline(iss, substring, ',')) {
+                problem.push_back(std::stoi(substring));
+            }
+        std::cout<<""<<std::endl;
+        OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_learning_prediction, activate_heuristic, K,learning_rate,init_value_multipliers, NULL , problem, false);
+        opt.instance();
+        opt.solutions(0);
+        opt.parse(argc,argv);
+        IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
+        }
+        j++;
+    }
+    if (write_samples)
+      std::cout<<"separateur_de_probleme"<<std::endl;
+    inputFilea.close(); // Close the file when done
+  }
   return 0;
 }
 
-namespace {
-  const int n1c1w1_a[] = {
-    2, 28,
-    1898, 440, 22507, 270, 14148, 3100, 4650, 30800, 615, 4975, 1160, 4225, 510, 11880, 479, 440, 490, 330, 110, 560, 24355, 2885, 11748, 4550, 750, 3720, 1950, 10500,
-    600, 600,
-    45, 0, 85, 150, 65, 95, 30, 0, 170, 0, 40, 25, 20, 0, 0, 25, 0, 0, 25, 0, 165, 0, 85, 0, 0, 0, 0, 100,
-    30, 20, 125, 5, 80, 25, 35, 73, 12, 15, 15, 40, 5, 10, 10, 12, 10, 9, 0, 20, 60, 40, 50, 36, 49, 40, 19, 150,
-    141278
-  };
-
-  // const int n1c1w1_a[] = {
-  //   1, 4,
-  //   1, 1, 1, 1,
-  //   12,
-  //   2, 3, 4, 5,
-  //   141278
-  // };
-
-  // const std::vector<std::vector<int>>* mknps[] = {
-  const int* mknps[] = {
-    &n1c1w1_a[0],
-  };
-
   const char* name[] = {
-    "n1c1w1_a",
+    "test",
+    "n1c1w1_b",
+    "n1c1w1_c",
+    "n1c1w1_d",
+    "n1c1w1_e",
+    "n1c1w1_f",
+    "n1c1w1_g",
+    "n1c1w1_h",
+    "n1c1w1_i",
+    "n1c1w1_j",
+    "n1c1w1_k",
+    "n1c1w1_l",
+    "n1c1w1_m",
+    "n1c1w1_n",
+    "n1c1w1_o",
+    "n1c1w1_p",
+    "n1c1w1_q",
+    "n1c1w1_r",
+    "n1c1w1_s",
+    "n1c1w1_t",
+    "n1c1w1_u",
+    "n1c1w1_v",
+    "n1c1w1_w",
+    "n1c1w1_x",
+    "n1c1w1_y",
+    "n1c1w1_z",
+    "n1c1w1_a_1",
+    "n1c1w1_b_1",
+    "n1c1w1_c_1",
+    "n1c1w1_d_1",
+    "n1c1w1_e_1"
   };
+
 }
+
 
