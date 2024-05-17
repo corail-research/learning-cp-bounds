@@ -9,9 +9,9 @@ find_package(Gecode 6.2 COMPONENTS Driver Float Int Kernel Minimodel Search Set 
 find_package(Threads)
 find_package(Torch REQUIRED)
 
-add_executable(solver solver.cpp)
+add_executable(solver_mknapsack solver.cpp)
 # Link Gecode to target test
-target_link_libraries(solver PRIVATE 
+target_link_libraries(solver_mknapsack PRIVATE 
     ${TORCH_LIBRARIES}
     pybind11::embed
     Gecode::Driver
@@ -26,4 +26,4 @@ target_link_libraries(solver PRIVATE
     Threads::Threads)
 
 
-set_property(TARGET solver PROPERTY CXX_STANDARD 17)
+set_property(TARGET solver_mknapsack PROPERTY CXX_STANDARD 17)

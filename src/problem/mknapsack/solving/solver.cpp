@@ -833,21 +833,16 @@ float dp_knapsack(int capacity,
 
 int main(int argc, char* argv[]) {
 
-  if (argc != 2) {
-     std::cerr << "usage: example-app </Users/dariusdabert/Downloads/traced_resnet_model.pt>\n";
-     //return -1;
-   }
-
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
 
-    module_1 = torch::jit::load(argv[1]);
-    module_2 = torch::jit::load(argv[2]);
+    module_1 = torch::jit::load("trained_models/mknapsack/model_graph_representation.pt");
+    module_2 = torch::jit::load("trained_models/mknapsack/model_prediction.pt");
 
   }
   catch (const c10::Error& e) {
-    std::cerr << "error with forward pass \n";
-    //return -1;
+    std::cerr << "error with loading the models \n";
+    return -1;
   }
 
   std::cout << "ok\n";
