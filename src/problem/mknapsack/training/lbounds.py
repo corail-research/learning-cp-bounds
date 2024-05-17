@@ -421,8 +421,8 @@ def plotter(train_loss, val_loss, train_diff_global_bound, val_diff_global_bound
 
 
 ## Train the models
-graphs_training = load_dataset('../input/random-generated-trainset/')
-graphs_test = load_dataset('../input/random-generated-testset/')
+graphs_training = load_dataset('../../../../data/mknapsack/train/pissinger/')
+graphs_test = load_dataset('../../../../data/mknapsack/train/pissinger/')
 
 # Create train_set and val_set
 train_data, val_data = train_test_split(graphs_training, test_size=0.2, random_state = 0)
