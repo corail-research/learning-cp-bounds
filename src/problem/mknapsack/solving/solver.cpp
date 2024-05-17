@@ -541,8 +541,8 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           edges_indexes_vec[0][compteur] = i * size_unfixed + k;
           edges_indexes_vec[1][compteur] = k;
           edges_weights_vec[compteur] = 1;
-          // edges_attr_vec[0][compteur] = 1;
-          // edges_attr_vec[1][compteur] = 0;
+          edges_attr_vec[0][compteur] = 1;
+          edges_attr_vec[1][compteur] = 0;
           compteur++;
         }
       }
@@ -557,7 +557,6 @@ void nonemax(Home home, const BoolVarArgs& variables) {
 
       inputs.push_back(edges_indexes);
       //inputs.push_back(edges_weights);
-      // transpose edges_attr
       inputs.push_back(edges_attr.transpose(0, 1));
       at::Tensor intermediate_output = module_1.forward(inputs).toTensor();
 
@@ -642,8 +641,6 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         final_bound += bound + fixed_bound; // sum all the bound of the knapsack sub-problem to update the multipliers
       
       }
-      //std::cout<<final_bound<<std::endl;
-      //final_bound = 10000.0f;
       // We impose the constraint z <= final_bound
       rel(*this, z <= final_bound); 
    
@@ -864,7 +861,7 @@ int main(int argc, char* argv[]) {
   float init_value_multipliers = 1.0f;
 
   for (int i = 0; i < 1; i++) {
-    std::ifstream inputFilea("Data/" + (std::string)name[i]+ ".txt");
+    std::ifstream inputFilea("src/problem/mknapsack/solving/benchmark/" + (std::string)name[i]+ ".txt");
     if (write_samples){
       std::ofstream outputFilea((std::string)name[i]+".txt");
 
@@ -2308,7 +2305,7 @@ int n1c1w1_a_1[] = {
   };
 
   const char* name[] = {
-    "test",
+    "mknapsacks",
     "n1c1w1_b",
     "n1c1w1_c",
     "n1c1w1_d",

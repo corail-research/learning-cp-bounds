@@ -548,6 +548,6 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(64)))
-traced_script_module.save("torch_model2.pt")
+traced_script_module.save("../../../../trained_models/model_graph_representation.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_test[0].x.to(device), graphs_test[0].edge_index.to(device), graphs_test[0].edge_attr.to(device)))
-traced_script_module.save("torch_model1.pt")
+traced_script_module.save("../../../../trained_models/model_prediction.pt")
