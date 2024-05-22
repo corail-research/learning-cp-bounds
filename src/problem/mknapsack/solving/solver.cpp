@@ -17,6 +17,7 @@ using namespace Gecode;
 static std::unordered_set<std::string> set_nodes;
 static torch::jit::script::Module module_1;
 static torch::jit::script::Module module_2;
+static int compteur_iterations = 0;
 
 // Allow to store the multipliers in a local handle to share them between the nodes
 class LI : public LocalHandle {
@@ -174,6 +175,7 @@ public:
   bool activate_bound_computation;
   bool activate_adam;
   bool activate_learning_prediction;
+  bool activate_learning_and_adam;
   bool activate_heuristic;
   int K;
   float learning_rate;
@@ -185,6 +187,7 @@ public:
     OptionsKnapsack(bool activate_bound_computation0,
     bool activate_adam0,
     bool activate_learning_prediction0,
+    bool activate_learning_and_adam0,
     bool activate_heuristic0, 
     int K0, float learning_rate0, 
     float init_value_multipliers0, 
@@ -195,6 +198,7 @@ public:
     activate_bound_computation(activate_bound_computation0),
     activate_adam(activate_adam0),
     activate_learning_prediction(activate_learning_prediction0),  
+    activate_learning_and_adam(activate_learning_and_adam0),
     activate_heuristic(activate_heuristic0), 
     K(K0), learning_rate(learning_rate0), 
     init_value_multipliers(init_value_multipliers0), 
@@ -214,6 +218,7 @@ protected:
     bool activate_bound_computation;
     bool activate_adam;
     bool activate_learning_prediction;
+    bool activate_learning_and_adam;
     bool activate_heuristic;
     int K;
     float learning_rate;
@@ -346,6 +351,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       this->activate_bound_computation = opt.activate_bound_computation; // Activate the bound computation at each node
       this->activate_adam = opt.activate_adam; // Activate the Adam optimizer to update the multipliers
       this->activate_learning_prediction = opt.activate_learning_prediction; // Activate the learning prediction
+      this->activate_learning_and_adam = opt.activate_learning_and_adam; // Activate the learning prediction and the Adam optimizer
       this->activate_heuristic = opt.activate_heuristic; // Activate the heuristic to branch on the items
       this->K = opt.K;                // The number of iteration to find the optimal multipliers
       this->learning_rate = opt.learning_rate; // The learning rate to update the multipliers
@@ -416,6 +422,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           }
           linear(*this, weight_x, IRT_LQ, capacities[j]);
       }
+    rel(*this, z >= 9584);
 
     nonemax(*this, variables);
   }
@@ -454,7 +461,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
     int* diff_var_solution =new int[rows-1]; // store the difference between the value of the variable and the value of the other variables in the solution
 
     float final_bound = std::numeric_limits<float>::max();
-    float bound_test[K];
+    std::vector<float> bound_test;
     
     std::vector<int> not_fixed_variables;
     std::vector<int> fixed_variables;
@@ -507,8 +514,208 @@ void nonemax(Home home, const BoolVarArgs& variables) {
             node_problem[2+(idx_constraint+1)*size_unfixed+nb_constraints+i]=spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
         }
     }
+    if (activate_learning_and_adam){
+      std::vector<torch::jit::IValue> inputs;
+      // create a tensor with
+      // at::Tensor nodes = torch::zeros({nb_constraints * size_unfixed, 6});
+      std::vector<float> nodes;
+      for (int j=0;j<nb_constraints;j++) {
+          for (int i=0;i<size_unfixed;i++) {
+            nodes.push_back(node_problem[2+i]);
+            nodes.push_back(node_problem[2+ size_unfixed  + nb_constraints + size_unfixed*j +i]);
+            nodes.push_back((float)std::max((float)node_problem[2+ + size_unfixed + + nb_constraints + size_unfixed*j +i],1.0f) / (float)std::max((float)node_problem[2 + size_unfixed + j], 1.0f));
+            nodes.push_back((float)node_problem[2 + i] / (float)std::max((float)node_problem[2+ + size_unfixed + nb_constraints +size_unfixed*j +i],1.0f));
+            nodes.push_back(i);
+            nodes.push_back(j);
+          }
+        }
+      at::Tensor nodes_t = torch::from_blob(nodes.data(), {nb_constraints * size_unfixed , 6}).to(torch::kFloat32);
+      inputs.push_back(nodes_t);
 
-    if (activate_learning_prediction){
+      std::vector<std::vector<int64_t>> edges_indexes_vec(2, std::vector<int64_t>(nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed));
+      std::vector<std::vector<int64_t>> edges_attr_vec(2, std::vector<int64_t>(nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed));
+      std::vector<float> edges_weights_vec(nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed);
+
+      int compteur = 0;
+      for (int k = 0; k < nb_constraints; k++) {
+        for (int i = 0; i < size_unfixed; i++) {
+          for (int j = i + 1; j < size_unfixed; j++) {
+            edges_indexes_vec[0][compteur] = k * size_unfixed + i;
+            edges_indexes_vec[1][compteur] = k * size_unfixed + j;
+            edges_weights_vec[compteur] = 1.0f / (float)size_unfixed;
+            edges_attr_vec[0][compteur] = 0;
+            edges_attr_vec[1][compteur] = 1;
+            
+            compteur++;
+          }
+        }
+      }
+      for (int k = 0; k < size_unfixed; k++) {
+        for (int i = 0; i < nb_constraints; i++) {
+          edges_indexes_vec[0][compteur] = i * size_unfixed + k;
+          edges_indexes_vec[1][compteur] = k;
+          edges_weights_vec[compteur] = 1;
+          edges_attr_vec[0][compteur] = 1;
+          edges_attr_vec[1][compteur] = 0;
+          compteur++;
+        }
+      }
+      // print the elements of edges_indexes_vec.data()
+      at::Tensor edge_first = torch::from_blob(edges_indexes_vec[0].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edge_second = torch::from_blob(edges_indexes_vec[1].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edges_indexes = torch::cat({edge_first, edge_second}, 0).reshape({2, nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed});
+      at::Tensor edges_attr_first = torch::from_blob(edges_attr_vec[0].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edges_attr_second = torch::from_blob(edges_attr_vec[1].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
+      at::Tensor edges_attr = torch::cat({edges_attr_first, edges_attr_second}, 0).reshape({2, nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed});
+      at::Tensor edges_weights = torch::from_blob(edges_weights_vec.data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kFloat32));
+
+      inputs.push_back(edges_indexes);
+      //inputs.push_back(edges_weights);
+      inputs.push_back(edges_attr.transpose(0, 1));
+      at::Tensor intermediate_output = module_1.forward(inputs).toTensor();
+
+
+      at::Tensor mean = intermediate_output.mean(0).repeat({nb_constraints * size_unfixed, 1});
+
+      std::vector<torch::jit::IValue> intermediate_inputs;
+
+      intermediate_inputs.push_back(torch::cat({intermediate_output, mean}, 1));
+      at::Tensor multipliers = module_2.forward(intermediate_inputs).toTensor();
+
+      // create a vector of multipliers
+      // std::vector<float> multipliers_vec;
+      // multipliers_vec.resize( nb_constraints * size_unfixed);
+      // for (int i = 0; i < nb_constraints * size_unfixed; i++) {
+      //   multipliers_vec[i] = multipliers[i].item<float>();
+      // }
+
+      std::vector<std::vector<float>> multipliers_vec(rows, std::vector<float>(cols, 0.0));
+      for (int i = 0; i < size_unfixed; ++i) {
+        for (int j = 0; j < cols; ++j) {
+          multipliers_vec[not_fixed_variables[i]][j] = multipliers[i + j*size_unfixed].item<float>();
+        }
+      }
+
+    
+      std::vector<std::vector<float>> m(rows, std::vector<float>(cols, 0.0));
+      std::vector<std::vector<float>> v(rows, std::vector<float>(cols, 0.0));
+      learning_rate = 1.0f;
+
+      int k = 1;
+      while ((( k < 5) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6))&& (k < 5000)) { // We repeat the dynamic programming algo to solve the knapsack problem
+                                // and at each iteration we update the value of the Lagrangian multipliers
+        final_fixed_bounds = 0.0f;
+        float bound_iter = 0.0f;
+        std::vector<SubProblem> subproblems;
+
+        for (int i = 0; i < size_unfixed; ++i) {
+          float sum = 0;
+          for (int j = 0; j < cols; ++j) {
+              value_var_solution[not_fixed_variables[i]][j] = 0;
+          }
+        }
+
+        // we create one subproblem for each knapsack constraint
+        for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+          SubProblem subproblem;
+          subproblem.weights_sub = new int[nb_items];
+          subproblem.val_sub = new float[nb_items];
+          subproblem.capacity = spec.capacity(idx_constraint, nb_items);
+
+          for (int i = 0; i < fixed_variables.size(); i++) {
+            subproblem.weights_sub[i] = spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints);
+
+            if (idx_constraint == 0) {
+              subproblem.val_sub[i] = spec.profit(fixed_variables[i]);
+            }
+
+            else {
+              subproblem.val_sub[i] = 0.0f;
+            }
+          }
+          for (int i = 0; i < not_fixed_variables.size(); i++) {
+            subproblem.weights_sub[i + fixed_variables.size()] = spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
+
+            if (idx_constraint == 0) {
+              float mult = 0.0f;
+            for (int j = 1; j < nb_constraints; j++) {
+              mult += multipliers_vec[not_fixed_variables[i]][j];
+            }
+              subproblem.val_sub[i + fixed_variables.size()] = spec.profit(not_fixed_variables[i]) +mult;
+            }
+
+            else {
+              subproblem.val_sub[i + fixed_variables.size()] = -multipliers_vec[not_fixed_variables[i]][idx_constraint];
+            }
+          }
+          subproblem.idx_constraint = idx_constraint;
+          subproblems.push_back(subproblem);
+        }
+
+        for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
+          SubProblem subproblem = subproblems[id_subproblem];
+          float weight_fixed = 0.0f;
+    
+          for (int k = 0; k < fixed_variables.size(); k++){
+            weight_fixed+=subproblem.weights_sub[k]* variables[fixed_variables[k]].val();
+          }
+
+          float bound = dp_knapsack(subproblem.capacity - weight_fixed,
+                                    subproblem.weights_sub + fixed_variables.size(),
+                                    subproblem.val_sub + fixed_variables.size(),
+                                    nb_items - fixed_variables.size(), nb_constraints,
+                                    subproblem.idx_constraint,
+                                    value_var_solution,
+                                    not_fixed_variables,
+                                    false);
+
+          float fixed_bound = 0.0f;
+
+          for (int k = 0; k< fixed_variables.size();k++){
+              fixed_bound += subproblem.val_sub[k] * variables[fixed_variables[k]].val();
+          }
+          final_fixed_bounds += fixed_bound;
+
+          bound_iter += bound + fixed_bound; // sum all the bound of the knapsack sub-problem to update the multipliers
+      
+        }
+        final_bound = std::min(final_bound, bound_iter);
+        bound_test.push_back(final_bound);
+
+
+        for (int i = 0; i < rows; ++i) {
+          float sum = 0;
+          for (int j = 1; j < cols; ++j) {
+
+              float gradient = value_var_solution[i][0] - value_var_solution[i][j];
+
+              m[i][j] = beta1 * m[i][j] + (1 - beta1) * gradient;
+
+              // Update biased second moment estimate
+              v[i][j] = beta2 * v[i][j] + (1 - beta2) * gradient * gradient;
+
+              // Compute bias-corrected first moment estimate
+              float m_hat = m[i][j] / (1 - std::pow(beta1, k+70));
+
+              // Compute bias-corrected second moment estimate
+              float v_hat = v[i][j] / (1 - std::pow(beta2, k+70));
+
+            multipliers_vec[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
+
+            sum += multipliers_vec[i][j];
+          }
+          multipliers_vec[i][0] = sum;
+        }
+        // We impose the constraint z <= final_bound
+        rel(*this, z <= final_bound); 
+        k++;
+      }
+      std::cout << "final bound : " << final_bound << std::endl;
+      std::cout << "k : " << k << std::endl;
+      compteur_iterations += k;
+
+    }
+    else if (activate_learning_prediction){
       std::vector<torch::jit::IValue> inputs;
       // create a tensor with
       // at::Tensor nodes = torch::zeros({nb_constraints * size_unfixed, 6});
@@ -649,31 +856,30 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         final_bound += bound + fixed_bound; // sum all the bound of the knapsack sub-problem to update the multipliers
       
       }
+      std::cout << "Final bound : " << final_bound << std::endl;
       // We impose the constraint z <= final_bound
       rel(*this, z <= final_bound); 
+      std::cout << "final bound : " << final_bound << std::endl;
    
     }
     else if (activate_adam){
       std::vector<std::vector<float>> m(rows, std::vector<float>(cols, 0.0));
       std::vector<std::vector<float>> v(rows, std::vector<float>(cols, 0.0));
-      learning_rate = 0.01;
-      // // initialize the multipliers to 0
-      for (int i = 0; i < rows; ++i) {
-          float sum = 0;
-          for (int j = 1; j < cols; ++j) {
-              // initialize with random value between -0.1 and 0.1
-              float init = (float)rand() / RAND_MAX * 0.2 - 0.1;
-              multipliers[i][j] = init;
-              sum += multipliers[i][j];
-          }
-          multipliers[i][0] = sum;
-      }
+      learning_rate = 1.0f;
 
-      for (int k=1; k<K+1; k++) { // We repeat the dynamic programming algo to solve the knapsack problem
+      int k = 1;
+      while (( k < 50) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) && (k < 5000)) { // We repeat the dynamic programming algo to solve the knapsack problem
                                 // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
         float bound_iter = 0.0f;
         std::vector<SubProblem> subproblems;
+
+        for (int i = 0; i < size_unfixed; ++i) {
+          float sum = 0;
+          for (int j = 0; j < cols; ++j) {
+              value_var_solution[not_fixed_variables[i]][j] = 0;
+          }
+        }
 
         // we create one subproblem for each knapsack constraint
         for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
@@ -736,33 +942,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       
         }
         final_bound = std::min(final_bound, bound_iter);
-        bound_test[k] = bound_iter;
-
-        if (k % 100 == 1) {
-          std::cout << "Iteration " << k << " : " << final_bound << std::endl;
-        }
-        //  if(k % 200 == 0){
-        //    learning_rate =0.05;
-        //  }
-
-        //  if(k % 1000 == 0){
-        //    learning_rate =0.0005;
-        //  }
-        // print the multipliers
-        std::cout << "Multipliers" << std::endl;
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << multipliers[i][j] << " ";
-          }
-          std::cout << std::endl;
-        }
-        std::cout << "Solutions" << std::endl;
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << value_var_solution[i][j] << " ";
-          }
-          std::cout << std::endl;
-        }
+         bound_test.push_back(final_bound);
 
         for (int i = 0; i < rows; ++i) {
           float sum = 0;
@@ -780,7 +960,6 @@ void nonemax(Home home, const BoolVarArgs& variables) {
 
               // Compute bias-corrected second moment estimate
               float v_hat = v[i][j] / (1 - std::pow(beta2, k));
-            
 
             multipliers[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
 
@@ -791,15 +970,26 @@ void nonemax(Home home, const BoolVarArgs& variables) {
 
         // We impose the constraint z <= final_bound
         rel(*this, z <= final_bound); 
+        k++;
       }
+      std::cout << "final bound : " << final_bound << std::endl;
+      std::cout << "k : " << k << std::endl;
+      compteur_iterations+=k;
     }
     else{
-      for (int k=0; k<K; k++) { // We repeat the dynamic programming algo to solve the knapsack problem
-                                // and at each iteration we update the value of the Lagrangian multipliers
+      int k = 1;
+      while (( k < 50) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-5) && (k < 5000)) { 
+        // We repeat the dynamic programming algo to solve the knapsack problem
+        // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
         float bound_iter = 0.0f;
         std::vector<SubProblem> subproblems;
 
+        for (int i = 0; i < size_unfixed; ++i) {
+          for (int j = 0; j < cols; ++j) {
+              value_var_solution[not_fixed_variables[i]][j] = 0;
+          }
+        }
         // we create one subproblem for each knapsack constraint
         for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
           SubProblem subproblem;
@@ -861,9 +1051,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       
         }
         final_bound = std::min(final_bound, bound_iter);
-        bound_test[k] = bound_iter;
-
-        // Update the multipliers (Quentin method with constant learning rate) TODO : implement the article method with adaptive learning rate
+        bound_test.push_back(final_bound);
 
         for (int i = 0; i < rows; ++i) {
           float sum = 0;
@@ -876,9 +1064,10 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           multipliers[i][0] = sum;
         }
 
-        //std::cout << "Iteration " << k << " : " << final_bound << std::endl;
+        if ( k %100 ==0) std::cout << "Iteration " << k << " : " << bound_iter << std::endl;
         // We impose the constraint z <= final_bound
         rel(*this, z <= final_bound); 
+        k++;
       }
     }
 
@@ -922,6 +1111,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
     this->activate_bound_computation = s.activate_bound_computation;
     this->activate_adam = s.activate_adam;
     this->activate_learning_prediction = s.activate_learning_prediction;
+    this->activate_learning_and_adam = s.activate_learning_and_adam;
     this->activate_heuristic = s.activate_heuristic;
     this->K = s.K;
     this->learning_rate = s.learning_rate;
@@ -1000,10 +1190,11 @@ int main(int argc, char* argv[]) {
   bool activate_bound_computation = true;
   bool activate_adam = true;
   bool activate_learning_prediction = false;
+  bool activate_learning_and_adam = true;
   bool activate_heuristic = true;
   bool write_samples = false;
-  int K = 1000;
-  float learning_rate = 0.2f;
+  int K = 5000;
+  float learning_rate = 1.0f;
   float init_value_multipliers = 1.0f;
 
   for (int i = 0; i < 1; i++) {
@@ -1028,7 +1219,7 @@ int main(int argc, char* argv[]) {
                 problem.push_back(std::stoi(substring));
             }
         std::cout<<""<<std::endl;
-        OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_adam, activate_learning_prediction, activate_heuristic, K,learning_rate,init_value_multipliers, &outputFilea , problem, true);
+        OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_adam, activate_learning_prediction, activate_learning_and_adam, activate_heuristic, K,learning_rate,init_value_multipliers, &outputFilea , problem, true);
         opt.instance();
         opt.solutions(0);
         opt.parse(argc,argv);
@@ -1053,7 +1244,7 @@ int main(int argc, char* argv[]) {
                 problem.push_back(std::stoi(substring));
             }
         std::cout<<""<<std::endl;
-        OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_adam, activate_learning_prediction, activate_heuristic, K,learning_rate,init_value_multipliers, NULL , problem, false);
+        OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_adam, activate_learning_prediction,activate_learning_and_adam, activate_heuristic, K,learning_rate,init_value_multipliers, NULL , problem, false);
         opt.instance();
         opt.solutions(0);
         opt.parse(argc,argv);
@@ -1065,6 +1256,7 @@ int main(int argc, char* argv[]) {
       std::cout<<"separateur_de_probleme"<<std::endl;
     inputFilea.close(); // Close the file when done
   }
+  std::cout << "compteur_iterations : " << compteur_iterations << std::endl;
   return 0;
 }
 
