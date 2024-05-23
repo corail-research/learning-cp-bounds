@@ -422,7 +422,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           }
           linear(*this, weight_x, IRT_LQ, capacities[j]);
       }
-    rel(*this, z >= 9584);
+    // rel(*this, z >= 9584);
 
     nonemax(*this, variables);
   }
@@ -695,10 +695,10 @@ void nonemax(Home home, const BoolVarArgs& variables) {
               v[i][j] = beta2 * v[i][j] + (1 - beta2) * gradient * gradient;
 
               // Compute bias-corrected first moment estimate
-              float m_hat = m[i][j] / (1 - std::pow(beta1, k+70));
+              float m_hat = m[i][j] / (1 - std::pow(beta1, k+100));
 
               // Compute bias-corrected second moment estimate
-              float v_hat = v[i][j] / (1 - std::pow(beta2, k+70));
+              float v_hat = v[i][j] / (1 - std::pow(beta2, k+100));
 
             multipliers_vec[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
 
@@ -856,7 +856,6 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         final_bound += bound + fixed_bound; // sum all the bound of the knapsack sub-problem to update the multipliers
       
       }
-      std::cout << "Final bound : " << final_bound << std::endl;
       // We impose the constraint z <= final_bound
       rel(*this, z <= final_bound); 
       std::cout << "final bound : " << final_bound << std::endl;
@@ -868,7 +867,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       learning_rate = 1.0f;
 
       int k = 1;
-      while (( k < 50) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) && (k < 5000)) { // We repeat the dynamic programming algo to solve the knapsack problem
+      while ((( k < 50) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) )&& (k < 300)) { // We repeat the dynamic programming algo to solve the knapsack problem
                                 // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
         float bound_iter = 0.0f;
@@ -1176,8 +1175,10 @@ int main(int argc, char* argv[]) {
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
 
-    module_1 = torch::jit::load("trained_models/mknapsack/model_graph_representation.pt");
-    module_2 = torch::jit::load("trained_models/mknapsack/model_prediction.pt");
+    // module_1 = torch::jit::load("trained_models/mknapsack/model_graph_representation.pt");
+    // module_2 = torch::jit::load("trained_models/mknapsack/model_prediction.pt");
+    module_1 = torch::jit::load("/Users/dariusdabert/Downloads/torch_model1-2.pt");
+    module_2 = torch::jit::load("/Users/dariusdabert/Downloads/torch_model2-2.pt");
 
   }
   catch (const c10::Error& e) {
@@ -1192,7 +1193,7 @@ int main(int argc, char* argv[]) {
   bool activate_learning_prediction = false;
   bool activate_learning_and_adam = true;
   bool activate_heuristic = true;
-  bool write_samples = false;
+  bool write_samples = true;
   int K = 5000;
   float learning_rate = 1.0f;
   float init_value_multipliers = 1.0f;
@@ -1205,7 +1206,7 @@ int main(int argc, char* argv[]) {
       std::string line;
       std::vector<int> problem;
       std::vector<int> numbers;
-      int j =1;
+      int j = 1;
 
       while (std::getline(inputFilea, line)) {
 
