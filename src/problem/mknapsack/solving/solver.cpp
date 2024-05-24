@@ -422,7 +422,6 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           }
           linear(*this, weight_x, IRT_LQ, capacities[j]);
       }
-    // rel(*this, z >= 9584);
 
     nonemax(*this, variables);
   }
@@ -517,7 +516,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
     if (activate_learning_and_adam){
       std::vector<torch::jit::IValue> inputs;
       // create a tensor with
-      // at::Tensor nodes = torch::zeros({nb_constraints * size_unfixed, 6});
+
       std::vector<float> nodes;
       for (int j=0;j<nb_constraints;j++) {
           for (int i=0;i<size_unfixed;i++) {
@@ -550,6 +549,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           }
         }
       }
+
       for (int k = 0; k < size_unfixed; k++) {
         for (int i = 0; i < nb_constraints; i++) {
           edges_indexes_vec[0][compteur] = i * size_unfixed + k;
@@ -560,6 +560,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           compteur++;
         }
       }
+
       // print the elements of edges_indexes_vec.data()
       at::Tensor edge_first = torch::from_blob(edges_indexes_vec[0].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
       at::Tensor edge_second = torch::from_blob(edges_indexes_vec[1].data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kInt64));
@@ -570,10 +571,9 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       at::Tensor edges_weights = torch::from_blob(edges_weights_vec.data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kFloat32));
 
       inputs.push_back(edges_indexes);
-      //inputs.push_back(edges_weights);
-      inputs.push_back(edges_attr.transpose(0, 1));
+      inputs.push_back(edges_weights);
+      //inputs.push_back(edges_attr.transpose(0, 1));
       at::Tensor intermediate_output = module_1.forward(inputs).toTensor();
-
 
       at::Tensor mean = intermediate_output.mean(0).repeat({nb_constraints * size_unfixed, 1});
 
@@ -582,27 +582,19 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       intermediate_inputs.push_back(torch::cat({intermediate_output, mean}, 1));
       at::Tensor multipliers = module_2.forward(intermediate_inputs).toTensor();
 
-      // create a vector of multipliers
-      // std::vector<float> multipliers_vec;
-      // multipliers_vec.resize( nb_constraints * size_unfixed);
-      // for (int i = 0; i < nb_constraints * size_unfixed; i++) {
-      //   multipliers_vec[i] = multipliers[i].item<float>();
-      // }
-
       std::vector<std::vector<float>> multipliers_vec(rows, std::vector<float>(cols, 0.0));
       for (int i = 0; i < size_unfixed; ++i) {
         for (int j = 0; j < cols; ++j) {
           multipliers_vec[not_fixed_variables[i]][j] = multipliers[i + j*size_unfixed].item<float>();
         }
       }
-
     
       std::vector<std::vector<float>> m(rows, std::vector<float>(cols, 0.0));
       std::vector<std::vector<float>> v(rows, std::vector<float>(cols, 0.0));
       learning_rate = 1.0f;
 
       int k = 1;
-      while ((( k < 5) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6))&& (k < 5000)) { // We repeat the dynamic programming algo to solve the knapsack problem
+      while ((( k < 3) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6))&& (k < 300)) { // We repeat the dynamic programming algo to solve the knapsack problem
                                 // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
         float bound_iter = 0.0f;
@@ -655,7 +647,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
           SubProblem subproblem = subproblems[id_subproblem];
           float weight_fixed = 0.0f;
-    
+
           for (int k = 0; k < fixed_variables.size(); k++){
             weight_fixed+=subproblem.weights_sub[k]* variables[fixed_variables[k]].val();
           }
@@ -695,10 +687,10 @@ void nonemax(Home home, const BoolVarArgs& variables) {
               v[i][j] = beta2 * v[i][j] + (1 - beta2) * gradient * gradient;
 
               // Compute bias-corrected first moment estimate
-              float m_hat = m[i][j] / (1 - std::pow(beta1, k+100));
+              float m_hat = m[i][j] / (1 - std::pow(beta1, k));
 
               // Compute bias-corrected second moment estimate
-              float v_hat = v[i][j] / (1 - std::pow(beta2, k+100));
+              float v_hat = v[i][j] / (1 - std::pow(beta2, k));
 
             multipliers_vec[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
 
@@ -711,8 +703,8 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         k++;
       }
       std::cout << "final bound : " << final_bound << std::endl;
-      std::cout << "k : " << k << std::endl;
-      compteur_iterations += k;
+      std::cout << "k : " << k-1 << std::endl;
+      compteur_iterations += k-1;
 
     }
     else if (activate_learning_prediction){
@@ -771,8 +763,8 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       at::Tensor edges_weights = torch::from_blob(edges_weights_vec.data(), {nb_constraints * size_unfixed * (size_unfixed -1) / 2 + nb_constraints * size_unfixed}, torch::TensorOptions().dtype(torch::kFloat32));
 
       inputs.push_back(edges_indexes);
-      //inputs.push_back(edges_weights);
-      inputs.push_back(edges_attr.transpose(0, 1));
+      inputs.push_back(edges_weights);
+      //inputs.push_back(edges_attr.transpose(0, 1));
       at::Tensor intermediate_output = module_1.forward(inputs).toTensor();
 
 
@@ -867,7 +859,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       learning_rate = 1.0f;
 
       int k = 1;
-      while ((( k < 50) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) )&& (k < 300)) { // We repeat the dynamic programming algo to solve the knapsack problem
+      while ((( k < 3) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) )&& (k < 1000)) { // We repeat the dynamic programming algo to solve the knapsack problem
                                 // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
         float bound_iter = 0.0f;
@@ -941,7 +933,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       
         }
         final_bound = std::min(final_bound, bound_iter);
-         bound_test.push_back(final_bound);
+        bound_test.push_back(bound_iter);
 
         for (int i = 0; i < rows; ++i) {
           float sum = 0;
@@ -972,12 +964,12 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         k++;
       }
       std::cout << "final bound : " << final_bound << std::endl;
-      std::cout << "k : " << k << std::endl;
-      compteur_iterations+=k;
+      std::cout << "k : " << k-1 << std::endl;
+      compteur_iterations+=k-1;
     }
     else{
       int k = 1;
-      while (( k < 50) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-5) && (k < 5000)) { 
+      while (( k < 5) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) && (k < 1000)) { 
         // We repeat the dynamic programming algo to solve the knapsack problem
         // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
@@ -1050,7 +1042,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       
         }
         final_bound = std::min(final_bound, bound_iter);
-        bound_test.push_back(final_bound);
+        bound_test.push_back(bound_iter);
 
         for (int i = 0; i < rows; ++i) {
           float sum = 0;
@@ -1073,7 +1065,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
     node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2] = final_fixed_bounds;
     node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2 + 1] = final_bound;
     if (write_samples) {
-      if ((set_nodes.count(dicstr)==0)  ) { // and (size_unfixed>=5)  and (size_unfixed<=30)
+      if ((set_nodes.count(dicstr)==0) and (size_unfixed>=5) ) { // and (size_unfixed>=5)  and (size_unfixed<=30)
           set_nodes.insert(dicstr);
 
           if (outputFileMK->is_open()) {
@@ -1190,16 +1182,18 @@ int main(int argc, char* argv[]) {
 
   bool activate_bound_computation = true;
   bool activate_adam = true;
-  bool activate_learning_prediction = false;
+  bool activate_learning_prediction = true;
   bool activate_learning_and_adam = true;
   bool activate_heuristic = true;
-  bool write_samples = true;
-  int K = 5000;
+  bool write_samples = false;
+  int K = 500;
   float learning_rate = 1.0f;
   float init_value_multipliers = 1.0f;
 
   for (int i = 0; i < 1; i++) {
     std::ifstream inputFilea("src/problem/mknapsack/solving/benchmark/" + (std::string)name[i]+ ".txt");
+    // std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/pissinger/knapsacks-data-trainset.txt");
+
     if (write_samples){
       std::ofstream outputFilea((std::string)name[i]+".txt");
 
