@@ -294,89 +294,67 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
   Returns:
   - train_loss: List of training losses for each epoch
   - val_loss: List of validation losses for each epoch
-  - train_diff: List of training relative differences between bound and optimal solutions for each epoch
-  - val_diff: List of validation relative differences between bound and optimal solutions for each epoch
+  - train_diff_ecart_opt: List of training relative differences between bound and optimal solutions for each epoch
+  - val_diff_ecart_opt: List of validation relative differences between bound and optimal solutions for each epoch
     """
 
   # Metrics for each epoch
     train_loss = []
     val_loss = []
-    train_diff_subgrad_bound = []
-    val_diff_subgrad_bound = []
-    train_diff_global_bound = []
-    val_diff_global_bound = []
-    train_diff_variable_bound = []
-    val_diff_variable_bound = []
+    train_diff_ecart_opt = []
+    val_diff_ecart_opt = []
     
     for epoch in range(n_epochs):
         train_loss_sublist = []
-        train_diff_subgrad_bound_sublist = []
-        train_diff_global_bound_sublist = []
-        train_diff_variable_bound_sublist = []
-        index = 0
+        train_diff_ecart_opt_sublist = []
         for data in train_loader:
-            index +=1
             model.train()
             optimizer.zero_grad()
             bound = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)
             loss = criterion(bound)
             loss.backward()
             optimizer.step()
-            y = data.solutions.to('cpu')
-            adam_bound = data.solutions.to('cpu')
-            subgrad_bound = data.subgrad_bound.to('cpu')
+            y = data.opt.to('cpu')
             gobal_bound = data.fix_bound.to('cpu') + bound.to('cpu')
-            train_loss_sublist.append(loss.detach().item())
-            train_diff_subgrad_bound_sublist.append((torch.mean(torch.div(gobal_bound - subgrad_bound, subgrad_bound))).detach().item())
-            train_diff_global_bound_sublist.append((torch.mean(torch.div(bound.to('cpu') - y, gobal_bound))).detach().item())
-            train_diff_variable_bound_sublist.append((torch.mean(torch.div(bound.to('cpu') - y, y))).detach().item())
+            train_loss_sublist.append(torch.mean(gobal_bound).detach().item())
+            train_diff_ecart_opt_sublist.append((torch.mean(torch.div(gobal_bound - y, y))).detach().item())
 
         train_loss.append(np.mean(train_loss_sublist))
-        train_diff_subgrad_bound.append(np.mean(train_diff_subgrad_bound_sublist))
-        train_diff_global_bound.append(np.mean(train_diff_global_bound_sublist))
-        train_diff_variable_bound.append(np.mean(train_diff_variable_bound_sublist))
+        train_diff_ecart_opt.append(np.mean(train_diff_ecart_opt_sublist))
         
         val_loss_sublist = []
-        val_diff_subgrad_bound_sublist = []
-        val_diff_global_bound_sublist = []
-        val_diff_variable_bound_sublist = []
+        val_diff_ecart_opt_sublist = []
         for data in val_loader:
             model.eval()
             with torch.no_grad():
                 bound = model(data.x.to(device), data.edge_index.to(device), data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)
                 loss = criterion(bound)
-                y = data.solutions.to('cpu')
-                subgrad_bound = data.subgrad_bound.to('cpu')
+                y = data.opt.to('cpu')
                 gobal_bound = data.fix_bound.to('cpu') + bound.to('cpu')
-                val_loss_sublist.append(loss.detach().item())
-                val_diff_subgrad_bound_sublist.append((torch.mean(torch.div(gobal_bound- subgrad_bound, subgrad_bound))).detach().item())
-                val_diff_global_bound_sublist.append((torch.mean(torch.div(bound.to('cpu') - y, gobal_bound))).detach().item())
-                val_diff_variable_bound_sublist.append((torch.mean(torch.div(bound.to('cpu') - y, y))).detach().item())
+                val_loss_sublist.append(torch.mean(gobal_bound).detach().item())
+                val_diff_ecart_opt_sublist.append((torch.mean(torch.div(gobal_bound - y, y))).detach().item())
 
 
         val_loss.append(np.mean(val_loss_sublist))
-        val_diff_subgrad_bound.append(np.mean(val_diff_subgrad_bound_sublist))
-        val_diff_global_bound.append(np.mean(val_diff_global_bound_sublist))
-        val_diff_variable_bound.append(np.mean(val_diff_variable_bound_sublist))
+        val_diff_ecart_opt.append(np.mean(val_diff_ecart_opt_sublist))
 
     #check if scheduler is none
         if scheduler is not None:
             scheduler.step(val_loss[-1])
 
-        if epoch%1 ==0:
+    #, val loss {val_loss[-1]}, , val diff {val_diff[-1]}
+        if epoch%5 ==0:
             print(f"Epoch {epoch} : "
       f"train loss {train_loss[-1]},  val loss {val_loss[-1]},\n "
-      f"train diff subgrad bound {train_diff_subgrad_bound[-1] * 100}%, "
-      f"val diff subgrad bound {val_diff_subgrad_bound[-1] * 100}%,\n"
-      f"train diff global bound {train_diff_global_bound[-1] * 100}%, "
-      f"val diff global bound {val_diff_global_bound[-1] * 100}%,\n"
-      f"train diff variable bound {train_diff_variable_bound[-1] * 100}%, "
-      f"val diff variable bound {val_diff_variable_bound[-1] * 100}%")
+      f"train diff ecart opt {train_diff_ecart_opt[-1] * 100}%, "
+      f"val diff ecart opt {val_diff_ecart_opt[-1] * 100}%,\n"
+                  
+                 )
 
 
-    return train_loss, val_loss, train_diff_global_bound, val_diff_global_bound, train_diff_subgrad_bound, val_diff_subgrad_bound, train_diff_variable_bound, val_diff_variable_bound
+    return train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt
 
-def plotter(train_loss, val_loss, train_diff_global_bound, val_diff_global_bound, train_diff_subgrad_bound, val_diff_subgrad_bound, train_diff_variable_bound, val_diff_variable_bound):
+def plotter(train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt):
     """
   Function to plot the training and validation metrics.
 
@@ -389,23 +367,15 @@ def plotter(train_loss, val_loss, train_diff_global_bound, val_diff_global_bound
   - val_f1: List of validation F1 scores for each epoch
     """
 
-    fig, axs = plt.subplots(1, 4, figsize=(20,5))
+    fig, axs = plt.subplots(1, 2, figsize=(20,5))
     axs[0].plot(train_loss, label="Train Loss")
     axs[0].plot(val_loss, label="Val Loss")
     axs[0].axhline(y=3200, color='r', linestyle='-', label="Baseline")
     axs[0].legend()
 
-    axs[1].plot(train_diff_global_bound, label="Train Diff Global Bound")
-    axs[1].plot(val_diff_global_bound, label="Val Diff Global Bound")
+    axs[1].plot(train_diff_ecart_opt, label="Train Diff Global Bound")
+    axs[1].plot(val_diff_ecart_opt, label="Val Diff Global Bound")
     axs[1].legend()
-
-    axs[2].plot(train_diff_subgrad_bound, label="Train Diff Subgrad Bound")
-    axs[2].plot(val_diff_subgrad_bound, label="Val Diff Subgrad Bound")
-    axs[2].legend()
-
-    axs[3].plot(train_diff_variable_bound, label="Train Diff Variable Bound")
-    axs[3].plot(val_diff_variable_bound, label="Val Diff Variable Bound")
-    axs[3].legend()
 
     plt.show()
 
@@ -435,12 +405,12 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', fa
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-train_loss, val_loss, train_diff_global_bound, val_diff_global_bound, train_diff_subgrad_bound, val_diff_subgrad_bound, train_diff_variable_bound, val_diff_variable_bound = train(model, optimizer, criterion, scheduler, val_loader, train_loader, 50, device)
+train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, val_loader, train_loader, 500, device)
 
 ## Print the results
 
 # plot
-plotter(train_loss, val_loss, train_diff_global_bound, val_diff_global_bound, train_diff_subgrad_bound, val_diff_subgrad_bound, train_diff_variable_bound, val_diff_variable_bound)
+plotter(train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt)
 
 ## Save the models
 
