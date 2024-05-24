@@ -462,9 +462,6 @@ class GNNsup1(torch.nn.Module):
         self.linear_graph1 = nn.Linear(n_hidden[3], n_hidden[4])
         self.linear_graph2 = nn.Linear(n_hidden[4], n_hidden[5])
 
-
-
-
         # Define the dropout laye£r
         self.dropout = nn.Dropout(dropout)
 
