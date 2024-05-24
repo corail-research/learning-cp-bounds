@@ -190,22 +190,19 @@ class GNN(torch.nn.Module):
         # Define the linear layers for the graph embedding
         self.linear_embedding = nn.Linear(n_features_nodes, n_hidden[0])
         self.linear_embedding2 = nn.Linear(n_hidden[0], n_hidden[1])
-        self.linear_embedding3 = nn.Linear(n_hidden[1], n_hidden[1])
 
         # Define the graph convolutional layers
-        self.conv1 = gnn.GATv2Conv(n_hidden[1], n_hidden[2], edge_dim=2)
-        self.conv2 = gnn.GATv2Conv(n_hidden[2], n_hidden[3], edge_dim=2)
+        self.conv1 = gnn.GatedGraphConv(  n_hidden[2], 2)
+        self.conv2 = gnn.GatedGraphConv( n_hidden[3], 2)
 
         # Define the linear layers for the graph embedding
         self.linear_graph1 = nn.Linear(n_hidden[3], n_hidden[4])
         self.linear_graph2 = nn.Linear(n_hidden[4], n_hidden[5])
-        self.linear_graph3 = nn.Linear(n_hidden[5], n_hidden[6])
 
         # Define the linear layers for the final prediction
-        self.linear = nn.Linear( 2 * n_hidden[6], n_hidden[7])
-        self.linear2 = nn.Linear(n_hidden[7], n_hidden[8])
-        self.linear3 = nn.Linear(n_hidden[7], n_hidden[9])
-        self.linear4 = nn.Linear(n_hidden[9], n_classes)
+        self.linear = nn.Linear( 2 * n_hidden[5], n_hidden[6])
+        self.linear2 = nn.Linear(n_hidden[6], n_hidden[7])
+        self.linear3 = nn.Linear(n_hidden[7], n_classes)
 
         # Define the dropout laye£r
         self.dropout = nn.Dropout(dropout)
@@ -216,20 +213,17 @@ class GNN(torch.nn.Module):
         G = F.relu(G)
         G = self.linear_embedding2(G)
         G = F.relu(G)
-        #G = self.linear_embedding3(G)
-        #G = F.relu(G)
 
-        G = self.conv1(G, edge_index, edge_attribute)
+
+        G = self.conv1(G, edge_index, edge_weight)
         G = F.relu(G)
-        G = self.conv2(G, edge_index, edge_attribute)
+        G = self.conv2(G, edge_index, edge_weight)
         G = F.relu(G)
 
         # Perform linear transformation and activation function
         G = self.linear_graph1(G)
         G = F.relu(G)
         G = self.linear_graph2(G)
-        G = F.relu(G)
-        G = self.linear_graph3(G)
 
         graph_embeddings = []
         compteur = 0
@@ -252,11 +246,9 @@ class GNN(torch.nn.Module):
         #u = self.dropout(u)
         u = self.linear(u)
         u = F.relu(u)
-        #u = self.linear2(u)
-        #u = F.relu(u)
-        u = self.linear3(u)
+        u = self.linear2(u)
         u = F.relu(u)
-        u = self.linear4(u)
+        u = self.linear3(u)
 
 
         u = u.to(torch.device('cpu'))
@@ -268,7 +260,6 @@ class GNN(torch.nn.Module):
         compteur = 0
         bounds = torch.zeros(len(problems))
         value_var_solutions = solve_knapsack_gpu_batch(problems, u2)
-
         for idx_batch, problem in enumerate(problems):
             dx = [0] * (problem[1] * problem[0])
             for i in range(problem[1]):
@@ -284,7 +275,6 @@ class GNN(torch.nn.Module):
             bound += temp.squeeze(-1)
             bounds[idx_batch] = bound
             compteur += problem[0] * problem[1]
-
         return bounds
     
 def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_epochs, device="cpu"):
@@ -437,7 +427,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 def criterion(bounds):
     return torch.mean(bounds)
 
-model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32, 16, 16], dropout=0.15, device=device).to(device)
+model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32], dropout=0.15, device=device).to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -463,19 +453,15 @@ class GNNsup1(torch.nn.Module):
        # Define the linear layers for the graph embedding
         self.linear_embedding = nn.Linear(n_features_nodes, n_hidden[0])
         self.linear_embedding2 = nn.Linear(n_hidden[0], n_hidden[1])
-        self.linear_embedding3 = nn.Linear(n_hidden[1], n_hidden[1])
 
         # Define the graph convolutional layers
-        #self.conv1 = gnn.GatedGraphConv(  n_hidden[2], 2)
-        #self.conv2 = gnn.GatedGraphConv( n_hidden[3], 2)
-        self.conv3 = gnn.GatedGraphConv( n_hidden[3], 2)
-        self.conv1 = gnn.GATv2Conv(n_hidden[1], n_hidden[2], edge_dim=2)
-        self.conv2 = gnn.GATv2Conv(n_hidden[2], n_hidden[3], edge_dim=2)
+        self.conv1 = gnn.GatedGraphConv(  n_hidden[2], 2)
+        self.conv2 = gnn.GatedGraphConv( n_hidden[3], 2)
 
         # Define the linear layers for the graph embedding
         self.linear_graph1 = nn.Linear(n_hidden[3], n_hidden[4])
         self.linear_graph2 = nn.Linear(n_hidden[4], n_hidden[5])
-        self.linear_graph3 = nn.Linear(n_hidden[5], n_hidden[6])
+
 
 
 
@@ -489,8 +475,6 @@ class GNNsup1(torch.nn.Module):
         G = F.relu(G)
         G = self.linear_embedding2(G)
         G = F.relu(G)
-        #G = self.linear_embedding3(G)
-        #G = F.relu(G)
 
         G = self.conv1(G, edge_index, edge_weight)
         G = F.relu(G)
@@ -500,8 +484,6 @@ class GNNsup1(torch.nn.Module):
         G = self.linear_graph1(G)
         G = F.relu(G)
         G = self.linear_graph2(G)
-        G = F.relu(G)
-        G = self.linear_graph3(G)
 
         return (G)
 
@@ -512,10 +494,9 @@ class GNNsup2(torch.nn.Module):
         self.device = device
 
        # Define the linear layers for the final prediction
-        self.linear = nn.Linear( 2 * n_hidden[6], n_hidden[7])
-        self.linear2 = nn.Linear(n_hidden[7], n_hidden[8])
-        self.linear3 = nn.Linear(n_hidden[7], n_hidden[9])
-        self.linear4 = nn.Linear(n_hidden[9], n_classes)
+        self.linear = nn.Linear( 2 * n_hidden[5], n_hidden[6])
+        self.linear2 = nn.Linear(n_hidden[6], n_hidden[7])
+        self.linear3 = nn.Linear(n_hidden[7], n_classes)
 
         # Define the dropout laye£r
         self.dropout = nn.Dropout(dropout)
@@ -526,11 +507,9 @@ class GNNsup2(torch.nn.Module):
         u = u.squeeze(-1)
         u = self.linear(u)
         u = F.relu(u)
-        #u = self.linear2(u)
-        #u = F.relu(u)
-        u = self.linear3(u)
+        u = self.linear2(u)
         u = F.relu(u)
-        u = self.linear4(u)
+        u = self.linear3(u)
         return(u)
     
 def copy_weights(model_old,model_new):
@@ -541,8 +520,8 @@ def copy_weights(model_old,model_new):
 torch.save(model.state_dict(), "GNN.pt")
 
 device = torch.device('cpu')
-model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32, 16, 16], dropout=0.15, device=device).to(device)
-model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32, 16, 16], dropout=0.15, device=device).to(device)
+model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32], dropout=0.15, device=device).to(device)
+model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32], dropout=0.15, device=device).to(device)
 
 copy_weights(model,model1)
 copy_weights(model,model2)
