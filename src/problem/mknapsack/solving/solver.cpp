@@ -1182,17 +1182,17 @@ int main(int argc, char* argv[]) {
 
   bool activate_bound_computation = true;
   bool activate_adam = true;
-  bool activate_learning_prediction = true;
-  bool activate_learning_and_adam = true;
+  bool activate_learning_prediction = false;
+  bool activate_learning_and_adam = false;
   bool activate_heuristic = true;
-  bool write_samples = false;
+  bool write_samples = true;
   int K = 500;
   float learning_rate = 1.0f;
   float init_value_multipliers = 1.0f;
 
   for (int i = 0; i < 1; i++) {
-    std::ifstream inputFilea("src/problem/mknapsack/solving/benchmark/" + (std::string)name[i]+ ".txt");
-    // std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/pissinger/knapsacks-data-trainset.txt");
+    // std::ifstream inputFilea("src/problem/mknapsack/solving/benchmark/" + (std::string)name[i]+ ".txt");
+    std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/pissinger/knapsacks-data-trainset.txt");
 
     if (write_samples){
       std::ofstream outputFilea((std::string)name[i]+".txt");
