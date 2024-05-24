@@ -82,7 +82,7 @@ def load_dataset(data_split):
                     graph_id = problem[0] * problem[1]
 
                     graph = torch_geometric.data.Data(x=torch.FloatTensor(X), edge_index=torch.LongTensor(edge_index).T,
-                      edge_weight=torch.FloatTensor(edge_weights), edge_attr=torch.LongTensor(edge_attributes), solutions = problem[-1], subgrad_bound = problem[-2], fix_bound = problem[-3],  graph_id=graph_id, graph_problem=problem)
+                      edge_weight=torch.FloatTensor(edge_weights), edge_attr=torch.LongTensor(edge_attributes), opt = problem[-1],  fix_bound = problem[-2],  graph_id=graph_id, graph_problem=problem)
 
                     graphs.append(graph)
     return graphs
@@ -493,7 +493,7 @@ model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128,
 copy_weights(model,model1)
 copy_weights(model,model2)
 
-traced_script_module = torch.jit.trace(model2, (torch.ones(64)))
+traced_script_module = torch.jit.trace(model2, (torch.ones(256)))
 traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation.pt")
-traced_script_module = torch.jit.trace(model1, (graphs_test[0].x.to(device), graphs_test[0].edge_index.to(device), graphs_test[0].edge_attr.to(device)))
+traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_attr.to(device)))
 traced_script_module.save("../../../../trained_models/mknapsack/model_prediction.pt")

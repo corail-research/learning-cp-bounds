@@ -1,6 +1,6 @@
-pandas
+pandas==2.1.0+computecanada
 sklearn
-numpy
+numpy==1.25.2+computecanada
 tqdm
 torch
 torch_geometric
