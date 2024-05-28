@@ -25,13 +25,13 @@ def generate_knapsack(nb_items,nb_constraints, P, tightness):
         P=P+list(W[j])
     return(P)
 
-with open("train/pissinger/knapsacks-data-trainset.txt",'w') as f:
+with open("train/pissinger/knapsacks-data-trainset30.txt",'w') as f:
 
     Ps = (10, 150)
     # plot the fitted distribution
     nb_constraints=5
     nb_items = 30
-    for i in range (0, 30):
+    for i in range (0, 100):
         tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
         knapsack=generate_knapsack(nb_items,5,Ps, tightness)
         line=""
@@ -41,13 +41,61 @@ with open("train/pissinger/knapsacks-data-trainset.txt",'w') as f:
         line += "\n"
         f.write(line)
 
-with open("test/pissinger/knapsacks-data-testset.txt",'w') as f:
+with open("train/pissinger/knapsacks-data-trainset50.txt",'w') as f:
 
-    Ps = (5, 300)
+    Ps = (10, 150)
+    # plot the fitted distribution
+    nb_constraints=5
+    nb_items = 50
+    for i in range (0, 100):
+        tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
+        knapsack=generate_knapsack(nb_items,5,Ps, tightness)
+        line=""
+        for i in range(len(knapsack)-1):
+            line=line+str(int(knapsack[i]))+","
+        line += str(int(knapsack[-1]))
+        line += "\n"
+        f.write(line)
+
+with open("train/pissinger/knapsacks-data-trainset100.txt",'w') as f:
+
+    Ps = (10, 150)
+    # plot the fitted distribution
+    nb_constraints=5
+    nb_items = 100
+    for i in range (0, 100):
+        tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
+        knapsack=generate_knapsack(nb_items,5,Ps, tightness)
+        line=""
+        for i in range(len(knapsack)-1):
+            line=line+str(int(knapsack[i]))+","
+        line += str(int(knapsack[-1]))
+        line += "\n"
+        f.write(line)
+
+with open("train/pissinger/knapsacks-data-trainset200.txt",'w') as f:
+
+    Ps = (10, 150)
+    # plot the fitted distribution
+    nb_constraints=5
+    nb_items = 200
+    for i in range (0, 100):
+        tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
+        knapsack=generate_knapsack(nb_items,5,Ps, tightness)
+        line=""
+        for i in range(len(knapsack)-1):
+            line=line+str(int(knapsack[i]))+","
+        line += str(int(knapsack[-1]))
+        line += "\n"
+        f.write(line)
+
+with open("test/pissinger/knapsacks-data-testset30.txt",'w') as f:
+
+    Ps = (10, 150)
     # plot the fitted distribution
     nb_constraints=5
     nb_items = 30
-    for i in range (0, 3):
+    for i in range (0, 100):
         tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
         knapsack=generate_knapsack(nb_items,5,Ps, tightness)
         line=""
@@ -56,4 +104,51 @@ with open("test/pissinger/knapsacks-data-testset.txt",'w') as f:
         line += str(int(knapsack[-1]))
         line += "\n"
         f.write(line)
-                
+
+with open("test/pissinger/knapsacks-data-testset50.txt",'w') as f:
+
+    Ps = (10, 150)
+    # plot the fitted distribution
+    nb_constraints=5
+    nb_items = 50
+    for i in range (0, 100):
+        tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
+        knapsack=generate_knapsack(nb_items,5,Ps, tightness)
+        line=""
+        for i in range(len(knapsack)-1):
+            line=line+str(int(knapsack[i]))+","
+        line += str(int(knapsack[-1]))
+        line += "\n"
+        f.write(line)
+
+with open("test/pissinger/knapsacks-data-testset100.txt",'w') as f:
+
+    Ps = (10, 150)
+    # plot the fitted distribution
+    nb_constraints=5
+    nb_items = 100
+    for i in range (0, 100):
+        tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
+        knapsack=generate_knapsack(nb_items,5,Ps, tightness)
+        line=""
+        for i in range(len(knapsack)-1):
+            line=line+str(int(knapsack[i]))+","
+        line += str(int(knapsack[-1]))
+        line += "\n"
+        f.write(line)
+
+with open("test/pissinger/knapsacks-data-testset200.txt",'w') as f:
+
+    Ps = (10, 150)
+    # plot the fitted distribution
+    nb_constraints=5
+    nb_items = 200
+    for i in range (0, 100):
+        tightness=np.array([0.3 + 0.03 *j for j in range(nb_constraints)])
+        knapsack=generate_knapsack(nb_items,5,Ps, tightness)
+        line=""
+        for i in range(len(knapsack)-1):
+            line=line+str(int(knapsack[i]))+","
+        line += str(int(knapsack[-1]))
+        line += "\n"
+        f.write(line)
