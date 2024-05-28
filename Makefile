@@ -1,5 +1,5 @@
-PYTHON_PATH="/Users/dariusdabert/anaconda3/bin/python3"
-TORCHLIB_PATH="/Users/dariusdabert/Downloads/libtorch"
+PYTHON_PATH="/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/bin/python3"
+TORCHLIB_PATH="/home/darius/scratch/libtorch/"
 
 mknapsack:
 	rm -rf src/problem/mknapsack/solving/build
