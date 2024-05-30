@@ -394,13 +394,18 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       for (int i = 0; i < n; i++) {
         order_branching[i] = i;
       }
-
+      std::vector<std::vector<float>> weights_f(m, std::vector<float>(n, 0.0f));
+      for (int i = 0; i < n; i++) {
+        for (int j = 0; j < m; j++) {
+          weights_f[j][i] = weights[j][i];
+        }
+      }
       std::sort(order_branching.begin(), order_branching.end(), [&](int i, int j) { 
         float sum_i = 0;
         float sum_j = 0;
         for (int k = 0; k < m; k++) {
-          sum_i += weights[k][i];
-          sum_j += weights[k][j];
+          sum_i += weights_f[k][i];
+          sum_j += weights_f[k][j];
         }
         float ratio_i = profits[i] / sum_i;
         float ratio_j = profits[j] / sum_j;
@@ -702,8 +707,8 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         rel(*this, z <= final_bound); 
         k++;
       }
-      std::cout << "final bound : " << final_bound << std::endl;
-      std::cout << "k : " << k-1 << std::endl;
+    //   std::cout << "final bound : " << final_bound << std::endl;
+    //   std::cout << "k : " << k-1 << std::endl;
       compteur_iterations += k-1;
 
     }
@@ -850,7 +855,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       }
       // We impose the constraint z <= final_bound
       rel(*this, z <= final_bound); 
-      std::cout << "final bound : " << final_bound << std::endl;
+    //   std::cout << "final bound : " << final_bound << std::endl;
    
     }
     else if (activate_adam){
@@ -963,8 +968,8 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         rel(*this, z <= final_bound); 
         k++;
       }
-      std::cout << "final bound : " << final_bound << std::endl;
-      std::cout << "k : " << k-1 << std::endl;
+    //   std::cout << "final bound : " << final_bound << std::endl;
+    //   std::cout << "k : " << k-1 << std::endl;
       compteur_iterations+=k-1;
     }
     else{
@@ -1055,7 +1060,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
           multipliers[i][0] = sum;
         }
 
-        if ( k %100 ==0) std::cout << "Iteration " << k << " : " << bound_iter << std::endl;
+        // if ( k %100 ==0) std::cout << "Iteration " << k << " : " << bound_iter << std::endl;
         // We impose the constraint z <= final_bound
         rel(*this, z <= final_bound); 
         k++;
@@ -1164,13 +1169,26 @@ float dp_knapsack(int capacity,
 
 int main(int argc, char* argv[]) {
 
+std::string n_size = argv[1];
+std::string n_model = argv[2];
+  int number_of_sizes = std::stoi(n_size);
+  int number_of_models = std::stoi(n_model);
+
+  std::string sizes[] = {"30", "50", "100", "200"};
+
+  bool activate_bound_computation[] = {true, true, true, false};
+  bool activate_adam[] = {true, false, false, false};
+  bool activate_learning_prediction[] = {false, true, false, false};
+  bool activate_learning_and_adam[] = {false, false, true, false};
+  bool activate_heuristic = true;
+  int K = 500;
+  float learning_rate = 1.0f;
+  float init_value_multipliers = 1.0f;
+
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
-
-    // module_1 = torch::jit::load("trained_models/mknapsack/model_graph_representation.pt");
-    // module_2 = torch::jit::load("trained_models/mknapsack/model_prediction.pt");
-    module_1 = torch::jit::load("/Users/dariusdabert/Downloads/torch_model1-2.pt");
-    module_2 = torch::jit::load("/Users/dariusdabert/Downloads/torch_model2-2.pt");
+     module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation.pt");
+     module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction.pt");
 
   }
   catch (const c10::Error& e) {
@@ -1178,24 +1196,22 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
-  std::cout << "ok\n";
+    bool write_samples;
+  if (strcmp(argv[3], "write_samples") == 0)
+    write_samples = true;
+else
+    write_samples = false;
 
-  bool activate_bound_computation = true;
-  bool activate_adam = true;
-  bool activate_learning_prediction = false;
-  bool activate_learning_and_adam = false;
-  bool activate_heuristic = true;
-  bool write_samples = true;
-  int K = 500;
-  float learning_rate = 1.0f;
-  float init_value_multipliers = 1.0f;
+    if (write_samples) {
+        for (int index_size = 2; index_size < number_of_sizes; index_size++) {
+        
+        std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/knapsacks-data-trainset" + sizes[index_size] + ".txt");
 
-  for (int i = 0; i < 1; i++) {
-    // std::ifstream inputFilea("src/problem/mknapsack/solving/benchmark/" + (std::string)name[i]+ ".txt");
-    std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/pissinger/knapsacks-data-trainset.txt");
-
-    if (write_samples){
-      std::ofstream outputFilea((std::string)name[i]+".txt");
+        std::ofstream outputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/trainset-"+ sizes[index_size] + "-subnodes.txt");
+        bool activate_bound_computation = true;
+        bool activate_adam = true;
+        bool activate_learning_prediction = false;
+        bool activate_learning_and_adam = false;
 
       std::string line;
       std::vector<int> problem;
@@ -1222,36 +1238,46 @@ int main(int argc, char* argv[]) {
         j++;
         }
         outputFilea.close();
-
-    }
-
-    else{
-      std::string line;
-      std::vector<int> problem;
-      std::vector<int> numbers;
-      int j =1;
-
-      while (std::getline(inputFilea, line)) {
-        std::vector<int> problem;
-        std::istringstream iss(line);
-        std::string substring;
-        while (std::getline(iss, substring, ',')) {
-                problem.push_back(std::stoi(substring));
-            }
-        std::cout<<""<<std::endl;
-        OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_adam, activate_learning_prediction,activate_learning_and_adam, activate_heuristic, K,learning_rate,init_value_multipliers, NULL , problem, false);
-        opt.instance();
-        opt.solutions(0);
-        opt.parse(argc,argv);
-        IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
+        inputFilea.close(); // Close the file when done
         }
-        j++;
+
     }
-    if (write_samples)
-      std::cout<<"separateur_de_probleme"<<std::endl;
+    else {
+  for (int index_size = 0; index_size < number_of_sizes; index_size++) {
+    for (int index_model = 1; index_model < 2; index_model++ ){
+
+        for (int i = 0; i < 1; i++) {
+        std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/test/pissinger/knapsacks-data-testset" + sizes[index_size] + ".txt");
+        std::string line;
+        std::vector<int> problem;
+        std::vector<int> numbers;
+        int j =1;
+
+        while (std::getline(inputFilea, line)) {
+            compteur_iterations = 0;
+            std::vector<int> problem;
+            std::istringstream iss(line);
+            std::string substring;
+                while (std::getline(iss, substring, ',')) {
+                    problem.push_back(std::stoi(substring));
+                }
+            std::cout<<""<<std::endl;
+            OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation[index_model], activate_adam[index_model], activate_learning_prediction[index_model], activate_learning_and_adam[index_model], activate_heuristic, K,learning_rate,init_value_multipliers, NULL , problem, false);
+            opt.instance();
+            opt.solutions(0);
+            opt.parse(argc,argv);
+            IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
+            std::cout << "compteur_iterations : " << compteur_iterations << std::endl;
+            }
+            j++;
+    
+    std::cout<<"separateur_de_modeles"<<std::endl;
     inputFilea.close(); // Close the file when done
+        }
+    }
+    std::cout << "separateur de taille" << std::endl;
   }
-  std::cout << "compteur_iterations : " << compteur_iterations << std::endl;
+    }
   return 0;
 }
 
@@ -1294,4 +1320,3 @@ namespace {
   };
 
 }
-
