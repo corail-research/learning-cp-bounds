@@ -30,13 +30,13 @@ def load_dataset(data_split):
     :param data_split: Path to the folder containing the text
     :return: List of graphs
     """
-    graphs = []      
+    graphs = [] 
     graph_id = 0
 
   # Loop through all the files in the folder
     for file_path in os.listdir(data_split):
         print(file_path)
-        if file_path.endswith('.txt'):
+        if file_path.endswith('trainset-30-subnodes.txt'):
         # Open the file
             with open(data_split+ '/' + file_path, 'r') as file:
             # A line is a node of the exploration tree
@@ -88,7 +88,7 @@ def load_dataset(data_split):
     return graphs
 
 @cuda.jit
-def dp_knapsack_gpu_batch(Lglobal_bound,capacities, Lweights, Lval, N, M,value_var_solution, Ldp):
+def dp_knapsack_gpu_batch(Lglobal_bound, capacities, Lweights, Lval, N, M, value_var_solution, Ldp):
     idx_batch = 0
     idx_thread = cuda.grid(1)
     while idx_thread >= M[idx_batch]:
@@ -101,13 +101,14 @@ def dp_knapsack_gpu_batch(Lglobal_bound,capacities, Lweights, Lval, N, M,value_v
         offset_n_m += N[i] * M[i]
         offset_m += M[i]
 
-    capacity=capacities[offset_m + idx_constraint]
-    weights=Lweights[offset_m + idx_constraint]
-    val=Lval[offset_m + idx_constraint]
+    capacity = capacities[offset_m + idx_constraint]
+    weights = Lweights[offset_m + idx_constraint]
+    val = Lval[offset_m + idx_constraint]
     for i in range(1, N[idx_batch] + 1):
         for w in range(capacity + 1):
             if weights[i - 1] <= w:
-                Ldp[offset_m + idx_constraint][w][i] = max(Ldp[offset_m + idx_constraint][w][i - 1], Ldp[offset_m + idx_constraint][w - weights[i - 1]][i - 1] + val[i - 1])
+                Ldp[offset_m + idx_constraint][w][i] = max(Ldp[offset_m + idx_constraint][w][i - 1],
+                                                           Ldp[offset_m + idx_constraint][w - weights[i - 1]][i - 1] + val[i - 1])
             else:
                 Ldp[offset_m + idx_constraint][w][i] = Ldp[offset_m + idx_constraint][w][i - 1]
 
@@ -118,66 +119,83 @@ def dp_knapsack_gpu_batch(Lglobal_bound,capacities, Lweights, Lval, N, M,value_v
             value_var_solution[offset_n_m + i - 1 + N[idx_batch] * idx_constraint] = 1
             w -= weights[i - 1]
 
-    Lglobal_bound[0]+=Ldp[offset_m + idx_constraint][capacity][N[idx_batch]]
+    cuda.atomic.add(Lglobal_bound, 0, Ldp[offset_m + idx_constraint][capacity][N[idx_batch]])
 
 def solve_knapsack_gpu_batch(problems, u):
     batch_size = len(problems)
-    compteur_n_m = 0
-    compteur_m = 0
     N = []
     M = []
     value_var_solution = []
     Lweights = []
     Lval = []
-    capacities=[]
-    for idx_batch in range(batch_size):
-        N.append(problems[idx_batch][1]) #nb_items
-        M.append(problems[idx_batch][0]) #nb_constraints
+    capacities = []
 
+    # Keep `u` on GPU and use PyTorch tensor operations
+    u = u.to("cuda")
+    
+    for idx_batch in range(batch_size):
+        N.append(problems[idx_batch][1])  # nb_items
+        M.append(problems[idx_batch][0])  # nb_constraints
+
+    max_n = max(N)
+    
     for idx_batch in range(batch_size):
         n = N[idx_batch]
         m = M[idx_batch]
-        value_var_solution += [0] * N[idx_batch] * M[idx_batch]
-        Lweights+=[0]*m
-        Lval+=[0]*m
-        u_1 =[]
-        for i in range(N[idx_batch]):
+        value_var_solution.extend([0] * n * m)
+        Lweights.extend([[0] * max_n] * m)
+        Lval.extend([[0] * max_n] * m)
+        u_1 = []
+        compteur_n_m = sum([N[i] * M[i] for i in range(idx_batch)])
+        for i in range(n):
             temp = 0
-            for j in range(1, M[idx_batch]):
-                temp += u[compteur_n_m + j * N[idx_batch] + i]
+            for j in range(1, m):
+                temp += u[compteur_n_m + j * n + i].item()  # Convert to scalar
             u_1.append(temp)
 
-        for idx_constraint in range(M[idx_batch]):
+        for idx_constraint in range(m):
             val = []
-            capacity = problems[idx_batch][2 + N[idx_batch] + idx_constraint]
-            for i in range(max(N)):
-                if i < N[idx_batch]:
+            capacity = problems[idx_batch][2 + n + idx_constraint]
+            for i in range(max_n):
+                if i < n:
                     if idx_constraint == 0:
-                        val.append( u_1[i] +  problems[idx_batch][2 + i])
+                        val.append(u_1[i] + problems[idx_batch][2 + i])
                     else:
-                        val.append(- u[compteur_n_m + idx_constraint * N[idx_batch] + i ])
+                        val.append(-u[compteur_n_m + idx_constraint * n + i].item())  # Convert to scalar
                 else:
                     val.append(0)
 
             weights = []
-            for i in range(max(N)):
-                if i < N[idx_batch]:
-                    weights.append(problems[idx_batch][2 + n + m + idx_constraint*n + i])
+            for i in range(max_n):
+                if i < n:
+                    weights.append(problems[idx_batch][2 + n + m + idx_constraint * n + i])
                 else:
                     weights.append(0)
-            Lweights[compteur_m + idx_constraint]=weights
-            Lval[compteur_m + idx_constraint]=val
+            Lweights[sum(M[:idx_batch]) + idx_constraint] = weights
+            Lval[sum(M[:idx_batch]) + idx_constraint] = val
             capacities.append(capacity)
-        compteur_n_m += N[idx_batch] * M[idx_batch]
-        compteur_m += M[idx_batch]
-    device = torch.device("cuda")
-    Lglobal_bound=cuda.to_device(np.array([0]))
-    Ldp=cuda.to_device(np.zeros((len(capacities),np.max(capacities)+1,max(N) + 1)))
-    value_var_solution = cuda.to_device(np.array(value_var_solution))
 
-    dp_knapsack_gpu_batch[compteur_m , 1](Lglobal_bound,cuda.to_device(np.array(capacities)), cuda.to_device(np.array(Lweights)), cuda.to_device(np.array(Lval)), cuda.to_device(np.array(N)), cuda.to_device(np.array(M)),value_var_solution, Ldp)
-    solutions = value_var_solution.copy_to_host()
-    return solutions
+    # Convert lists to PyTorch tensors and then to GPU
+    device = torch.device("cuda")
+    Lglobal_bound = torch.tensor([0], dtype=torch.int32, device=device)
+    value_var_solution = torch.tensor(value_var_solution, dtype=torch.int32, device=device)
+
+    Lweights_tensor = torch.tensor(Lweights, dtype=torch.int32, device=device)
+    Lval_tensor = torch.tensor(Lval, device=device)
+    capacities_tensor = torch.tensor(capacities, dtype=torch.int32, device=device)
+    Ldp = torch.zeros((len(capacities), torch.max(capacities_tensor) + 1, max(N) + 1), dtype=torch.int32, device=device)
+    N_tensor = torch.tensor(N, dtype=torch.int32, device=device)
+    M_tensor = torch.tensor(M, dtype=torch.int32, device=device)
+
+    dp_knapsack_gpu_batch[batch_size * int(max(M)), 1](Lglobal_bound, 
+                                                  capacities_tensor, 
+                                                  Lweights_tensor, 
+                                                  Lval_tensor, 
+                                                  N_tensor, 
+                                                  M_tensor, 
+                                                  value_var_solution, Ldp)
+
+    return value_var_solution
 
 class GNN(torch.nn.Module):
     def __init__(self, n_features_nodes, n_classes, n_hidden, dropout, device):
@@ -251,15 +269,15 @@ class GNN(torch.nn.Module):
         u = self.linear3(u)
 
 
-        u = u.to(torch.device('cpu'))
-        u2=list(torch.clone(u).squeeze(-1).detach().numpy())
+       # u = u.to(torch.device('cpu'))
+#        u2=list(torch.clone(u).squeeze(-1).detach().numpy())
         u = u.to(self.device)
 
         # Solve the knapsack problem for each graph of the batch
         sum_fixed = 0
         compteur = 0
         bounds = torch.zeros(len(problems))
-        value_var_solutions = solve_knapsack_gpu_batch(problems, u2)
+        value_var_solutions = solve_knapsack_gpu_batch(problems, u)
         for idx_batch, problem in enumerate(problems):
             dx = [0] * (problem[1] * problem[0])
             for i in range(problem[1]):
@@ -268,7 +286,7 @@ class GNN(torch.nn.Module):
             dx = torch.Tensor(dx).to(self.device)
             u_temp = torch.Tensor(u[compteur: compteur + problem[0] * problem[1]]).squeeze(-1)
             bound = torch.dot(u_temp , dx)
-            temp = torch.zeros(1)
+            temp = torch.zeros(1).to(device)
             for i in range(problem[1]):
                 temp += problem[2 + i] * value_var_solutions[compteur + i]
 
@@ -310,12 +328,14 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
         for data in train_loader:
             model.train()
             optimizer.zero_grad()
+            tensor_problems = [torch.tensor(sublist) for sublist in data.graph_problem]
+            data.graph_problem = [tensor.to(device) for tensor in tensor_problems]
             bound = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)
             loss = criterion(bound)
             loss.backward()
             optimizer.step()
-            y = data.opt.to('cpu')
-            gobal_bound = data.fix_bound.to('cpu') + bound.to('cpu')
+            y = data.opt.to(device)
+            gobal_bound = data.fix_bound.to(device) + bound.to(device)
             train_loss_sublist.append(torch.mean(gobal_bound).detach().item())
             train_diff_ecart_opt_sublist.append((torch.mean(torch.div(gobal_bound - y, y))).detach().item())
 
@@ -327,10 +347,12 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
         for data in val_loader:
             model.eval()
             with torch.no_grad():
+                tensor_problems = [torch.tensor(sublist) for sublist in data.graph_problem]
+                data.graph_problem = [tensor.to(device) for tensor in tensor_problems]
                 bound = model(data.x.to(device), data.edge_index.to(device), data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)
                 loss = criterion(bound)
-                y = data.opt.to('cpu')
-                gobal_bound = data.fix_bound.to('cpu') + bound.to('cpu')
+                y = data.opt.to(device)
+                gobal_bound = data.fix_bound.to(device) + bound.to(device)
                 val_loss_sublist.append(torch.mean(gobal_bound).detach().item())
                 val_diff_ecart_opt_sublist.append((torch.mean(torch.div(gobal_bound - y, y))).detach().item())
 
@@ -397,7 +419,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 def criterion(bounds):
     return torch.mean(bounds)
 
-model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32], dropout=0.15, device=device).to(device)
+model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -484,16 +506,16 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-torch.save(model.state_dict(), "GNN.pt")
+torch.save(model.state_dict(), "GNN30.pt")
 
-device = torch.device('cpu')
-model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32], dropout=0.15, device=device).to(device)
-model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 8, 64, 64, 128, 128, 32, 32], dropout=0.15, device=device).to(device)
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
+model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
 
 copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(256)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation.pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_prediction30.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_attr.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction.pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation30.pt")
