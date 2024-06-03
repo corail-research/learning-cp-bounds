@@ -8,7 +8,7 @@ with open("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/t
                 for line in lines:
                     probleme = line.split(sep = ',')
                     for k in range(n-1, 5, -1):
-                        for p in range(100):
+                        for p in range(1):
                             problem = []
                             problem.append(m)
                             problem.append(k)
