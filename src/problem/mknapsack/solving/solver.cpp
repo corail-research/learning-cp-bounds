@@ -1187,8 +1187,8 @@ std::string n_model = argv[2];
 
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
-     module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation.pt");
-     module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction.pt");
+     module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-100.pt");
+     module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-100.pt");
 
   }
   catch (const c10::Error& e) {
@@ -1203,7 +1203,7 @@ else
     write_samples = false;
 
     if (write_samples) {
-        for (int index_size = 2; index_size < number_of_sizes; index_size++) {
+        for (int index_size = 0; index_size < number_of_sizes; index_size++) {
         
         std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/knapsacks-data-trainset" + sizes[index_size] + ".txt");
 
@@ -1243,8 +1243,8 @@ else
 
     }
     else {
-  for (int index_size = 0; index_size < number_of_sizes; index_size++) {
-    for (int index_model = 1; index_model < 2; index_model++ ){
+  for (int index_size = 2; index_size < number_of_sizes; index_size++) {
+    for (int index_model = 1; index_model < number_of_models ; index_model++ ){
 
         for (int i = 0; i < 1; i++) {
         std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/test/pissinger/knapsacks-data-testset" + sizes[index_size] + ".txt");
