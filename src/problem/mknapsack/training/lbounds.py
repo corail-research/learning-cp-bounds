@@ -24,7 +24,7 @@ import torch.optim as optim
 
 from numba import cuda
 
-def load_dataset(data_split):
+def load_dataset(file_path):
     """
     Function to load the dataset from the text files
     :param data_split: Path to the folder containing the text
@@ -33,12 +33,7 @@ def load_dataset(data_split):
     graphs = [] 
     graph_id = 0
 
-  # Loop through all the files in the folder
-    for file_path in os.listdir(data_split):
-        print(file_path)
-        if file_path.endswith('trainset-30-subnodes.txt'):
-        # Open the file
-            with open(data_split+ '/' + file_path, 'r') as file:
+    with open(file_path, 'r') as file:
             # A line is a node of the exploration tree
                 for line in file.readlines():
                 # Create a new graph object
@@ -322,7 +317,7 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
     train_diff_ecart_opt = []
     val_diff_ecart_opt = []
     
-    for epoch in range(n_epochs):
+    for epoch in tqdm(range(n_epochs)):
         train_loss_sublist = []
         train_diff_ecart_opt_sublist = []
         for data in train_loader:
@@ -365,7 +360,7 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
             scheduler.step(val_loss[-1])
 
     #, val loss {val_loss[-1]}, , val diff {val_diff[-1]}
-        if epoch%5 ==0:
+        if epoch%1 ==0:
             print(f"Epoch {epoch} : "
       f"train loss {train_loss[-1]},  val loss {val_loss[-1]},\n "
       f"train diff ecart opt {train_diff_ecart_opt[-1] * 100}%, "
@@ -403,14 +398,14 @@ def plotter(train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt):
 
 
 ## Train the models
-graphs_training = load_dataset('../../../../data/mknapsack/train/pissinger/')
-graphs_test = load_dataset('../../../../data/mknapsack/train/pissinger/')
+graphs_training = load_dataset('../../../../data/mknapsack/train/pissinger/trainset-artificial-200-subnodes.txt')
+graphs_test = load_dataset('../../../../data/mknapsack/train/pissinger/trainset-artificial-200-subnodes.txt')
 
 # Create train_set and val_set
 train_data, val_data = train_test_split(graphs_training, test_size=0.2, random_state = 0)
-train_loader = DataLoader(train_data, batch_size=16, shuffle=False)
+train_loader = DataLoader(graphs_training, batch_size=16, shuffle=False)
 
-val_loader = DataLoader(val_data, batch_size=16, shuffle=False)
+val_loader = DataLoader(graphs_test[:1000], batch_size=16, shuffle=False)
 
 torch.cuda.empty_cache()
 
@@ -427,7 +422,7 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', fa
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, val_loader, train_loader, 500, device)
+train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 150, device)
 
 ## Print the results
 
@@ -506,7 +501,7 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-torch.save(model.state_dict(), "GNN30.pt")
+torch.save(model.state_dict(), "GNN-artificial200.pt")
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
@@ -515,7 +510,7 @@ model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256
 copy_weights(model,model1)
 copy_weights(model,model2)
 
-traced_script_module = torch.jit.trace(model2, (torch.ones(256)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction30.pt")
-traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_attr.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation30.pt")
+traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
+traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-artificial200.pt")
+traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
+traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-artificial200.pt")
