@@ -53,9 +53,9 @@ class LI : public LocalHandle {
 //TODO: Change the structure for SSP
 // Structure of the subproblems of the ssp problem
 struct SubProblem {
-    int* weights_sub;
+    int* transitions_sub;
     float* val_sub;
-    int capacity;
+    int* domains_sub;
     int idx_constraint;
     };
 
@@ -457,11 +457,11 @@ class SSP : public IntMaximizeSpace {
       }
     }
     z = expr(*this, sum(C));
-
-    // The constraints for the transitions
-    DFA::Transition transitions_set[] = {};
-    int p = 0;
     for (int l = 0; l < m; l++) {
+      // The constraints for the transitions
+      DFA::Transition transitions_set[] = {};
+      int p = 0;
+    
       for (int i = 0; i < Q; i++) {
         for (int k = 0; k < V; k++) {
           for (int j = 0; j < Q; j++) {
@@ -472,16 +472,15 @@ class SSP : public IntMaximizeSpace {
           }
         }
       }
-    }
+      int f[] = {}; 
+      for (int i = 0; i < F; i++) {
+        f[i] = final_states[i];
+      }
+      f[F] = -1;
+      DFA dfa(spec.initial_state(), transitions_set, f);
 
-    int f[] = {}; 
-    for (int i = 0; i < F; i++) {
-      f[i] = final_states[i];
+      extensional(*this, variables, dfa);
     }
-    f[F] = -1;
-    DFA dfa(spec.initial_state(), transitions_set, f);
-
-    extensional(*this, variables, dfa);
 
     nonemax(*this, variables);
     }
@@ -490,9 +489,14 @@ class SSP : public IntMaximizeSpace {
     }
 
   void more(void) { // compute the bound at each node after every branching
-    int nb_items = spec.nb_items();
-    int nb_constraints = spec.nb_constraints();
+    const int nb_items = spec.nb_items();
+    const int nb_constraints = spec.nb_constraints();
+    const int nb_values = spec.nb_values();
+    const int nb_states = spec.nb_states();
+    const int F = spec.nb_final_states();
     int val[nb_items];
+    int profits[nb_items][nb_values];
+    int transitions[nb_constraints][nb_states][nb_values][nb_states];
     float final_fixed_bounds = 0.0f;
     float beta1 = 0.9;
     float beta2 = 0.999;
@@ -547,28 +551,31 @@ class SSP : public IntMaximizeSpace {
     int size_unfixed=not_fixed_variables.size();
     int* node_problem=new int[size_unfixed*(nb_constraints+1)+nb_constraints+2 + 1 + 1];
 
-    node_problem[0]=nb_constraints;
-    node_problem[1]=size_unfixed;
+    // TODO : change the subnode writing 
 
-    for (int k=0;k<size_unfixed;k++) {
-        node_problem[2+k]=spec.profit(not_fixed_variables[k]);
-      }
+    // node_problem[0]=nb_constraints;
+    // node_problem[1]=size_unfixed;
 
-    for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
-        int capacity_unfixed=spec.capacity(idx_constraint,nb_items);
+    // for (int k=0;k<size_unfixed;k++) {
+    //     node_problem[2+k]=spec.profit(not_fixed_variables[k]);
+    //   }
 
-        for (int i=0;i<fixed_variables.size();i++) {
-            capacity_unfixed-=spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints)*variables[fixed_variables[i]].val();
-        }
+    // for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+    //     int capacity_unfixed=spec.capacity(idx_constraint,nb_items);
 
-        node_problem[2+size_unfixed+idx_constraint]=capacity_unfixed;
-    }
+    //     for (int i=0;i<fixed_variables.size();i++) {
+    //         capacity_unfixed-=spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints)*variables[fixed_variables[i]].val();
+    //     }
 
-    for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
-        for (int i=0;i<size_unfixed;i++) {
-            node_problem[2+(idx_constraint+1)*size_unfixed+nb_constraints+i]=spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
-        }
-    }
+    //     node_problem[2+size_unfixed+idx_constraint]=capacity_unfixed;
+    // }
+
+    // for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+    //     for (int i=0;i<size_unfixed;i++) {
+    //         node_problem[2+(idx_constraint+1)*size_unfixed+nb_constraints+i]=spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
+    //     }
+    // }
+
     if (activate_learning_and_adam){
       std::vector<torch::jit::IValue> inputs;
       // create a tensor with
@@ -1040,32 +1047,49 @@ class SSP : public IntMaximizeSpace {
         // we create one subproblem for each knapsack constraint
         for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
           SubProblem subproblem;
-          subproblem.weights_sub = new int[nb_items];
-          subproblem.val_sub = new float[nb_items];
-          subproblem.capacity = spec.capacity(idx_constraint, nb_items);
+          subproblem.val_sub = new float[nb_items * nb_values];
+          subproblem.transitions_sub = new int[nb_states * nb_values * nb_states];
+          subproblem.domains_sub = new int[nb_items * nb_values];
+
 
           for (int i = 0; i < fixed_variables.size(); i++) {
-            subproblem.weights_sub[i] = spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints);
+            for (int j = 0; j < nb_values; j++) {
 
-            if (idx_constraint == 0) {
-              subproblem.val_sub[i] = spec.profit(fixed_variables[i]) + multipliers[fixed_variables[i]][idx_constraint];
-            }
+              subproblem.domains_sub[i * nb_values + j] = spec.value(fixed_variables[i], j , F, nb_items, nb_constraints);
 
-            else {
-              subproblem.val_sub[i] = -multipliers[fixed_variables[i]][idx_constraint];
+              if (idx_constraint == 0) {
+                subproblem.val_sub[i * nb_values + j] = spec.profit(fixed_variables[i], j , F) + multipliers[fixed_variables[i]][idx_constraint];
+              }
+
+              else {
+                subproblem.val_sub[i * nb_values + j] = -multipliers[fixed_variables[i]][idx_constraint];
+              }
             }
           }
+
           for (int i = 0; i < not_fixed_variables.size(); i++) {
-            subproblem.weights_sub[i + fixed_variables.size()] = spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
+            for (int j = 0; j < nb_values; j++) {
 
-            if (idx_constraint == 0) {
-              subproblem.val_sub[i + fixed_variables.size()] = spec.profit(not_fixed_variables[i]) + multipliers[not_fixed_variables[i]][idx_constraint];
-            }
+              subproblem.domains_sub[(i + fixed_variables.size()) * nb_values + j] = spec.value(not_fixed_variables[i], j , F, nb_items, nb_constraints);
 
-            else {
-              subproblem.val_sub[i + fixed_variables.size()] = -multipliers[not_fixed_variables[i]][idx_constraint];
+              if (idx_constraint == 0) {
+                subproblem.val_sub[(i + fixed_variables.size()) * nb_values + j] = spec.profit(not_fixed_variables[i], j , F) + multipliers[not_fixed_variables[i]][idx_constraint];
+              }
+
+              else {
+                subproblem.val_sub[(i + fixed_variables.size()) * nb_values + j] = -multipliers[not_fixed_variables[i]][idx_constraint];
+              }
             }
           }
+
+          for (int i = 0; i < nb_states; i++) {
+            for (int j = 0; j < nb_values; j++) {
+              for (int k = 0; k < nb_states; k++) {
+                subproblem.transitions_sub[i * nb_values * nb_states + j * nb_states + k] = spec.transition(idx_constraint, i, j, k, F, nb_items, nb_constraints);
+              }
+            }
+          }
+
           subproblem.idx_constraint = idx_constraint;
           subproblems.push_back(subproblem);
         }
