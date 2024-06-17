@@ -24,8 +24,8 @@ class LI : public LocalHandle {
     protected:
     class LIO : public LocalObject {
     public:
-        std::vector<std::vector<float>> multipliers;
-        LIO(Space& home, std::vector<std::vector<float>> d) : LocalObject(home), multipliers(d) {}
+        std::vector<std::vector<std::vector<float>>> multipliers;
+        LIO(Space& home, std::vector<std::vector<std::vector<float>>> d) : LocalObject(home), multipliers(d) {}
         LIO(Space& home, LIO& l)
         : LocalObject(home,l), multipliers(l.multipliers) {}
         virtual LocalObject* copy(Space& home) {
@@ -35,17 +35,17 @@ class LI : public LocalHandle {
     };
 
     public:
-    LI(Space& home, std::vector<std::vector<float>> d)
+    LI(Space& home, std::vector<std::vector<std::vector<float>>> d)
         : LocalHandle(new (home) LIO(home,d)) {}
     LI(const LI& li)
         : LocalHandle(li) {}
     LI& operator =(const LI& li) {
         return static_cast<LI&>(LocalHandle::operator =(li));
     }
-    std::vector<std::vector<float>> get(void) const {
+    std::vector<std::vector<std::vector<float>>> get(void) const {
         return static_cast<LIO*>(object())->multipliers;
     }
-    void set(std::vector<std::vector<float>> d) {
+    void set(std::vector<std::vector<std::vector<float>>> d) {
         static_cast<LIO*>(object())->multipliers = d;
     }
     };
@@ -57,6 +57,7 @@ struct SubProblem {
     std::vector<std::vector<float>> val_sub;
     std::vector<std::vector<int>> domains_sub;
     std::vector<int> states;
+    std::vector<int> final_states;
     int idx_constraint;
     };
 
@@ -116,13 +117,13 @@ namespace {
         int profit(int i, int j, int nb_final_states) const {
         return pData[6 + nb_final_states + i * nb_values() + j];
         }
-        /// Return 1 if the value i is in the domain of variable j and 0 otherwise
+        /// Return 1 if the value j is in the domain of variable i and 0 otherwise
         int value(int i, int j, int nb_final_states, int nb_items, int nb_values) const {
-        return pData[6 + nb_final_states + nb_items * nb_values + i + j * nb_items * nb_values];
+        return pData[6 + nb_final_states + nb_items * nb_values + j * nb_items + i ];
         }
         /// Return the 1 if the transition from state i to state j with value k is possible and 0 otherwise for constraint l
         int transition(int l, int i, int k, int j, int nb_final_states, int nb_items, int nb_constraints, int nb_states, int nb_values) const {
-        return pData[6 + nb_final_states + nb_items * nb_values + nb_constraints * nb_items * nb_values + k * nb_states + j * nb_values * nb_states + i + l * nb_values * nb_states * nb_states ];
+        return pData[6 + nb_final_states + nb_items * nb_values + nb_items * nb_values + k * nb_states + j * nb_values * nb_states + i + l * nb_values * nb_states * nb_states ];
         }
         // /// Return the optimal value (last value in the instance file)
         // int optimal(int nb_items, int nb_constraints) const {
@@ -147,7 +148,7 @@ namespace {
         return u+1;
         }
         int nb_params(void) const {
-            return(6 + nb_final_states() + nb_items() * nb_values() + nb_constraints() * nb_items() * nb_values() + nb_constraints() * nb_items() * nb_states() * nb_values() );
+            return(6 + nb_final_states() + nb_items() * nb_values() + nb_items() * nb_values() + nb_constraints() * nb_items() * nb_states() * nb_values() );
         }
         int* get_pData() const {
             return pData;
@@ -247,7 +248,7 @@ class SSP : public IntMaximizeSpace {
       float learning_rate;
       float init_value_multipliers;
       std::vector<int> order_branching; // Order of the items to branch on
-      std::vector<std::vector<float>> multipliers; // Lagrangian multipliers shared between the nodes
+      std::vector<std::vector<std::vector<float>>> multipliers; // Lagrangian multipliers shared between the nodes
       std::ofstream* outputFileMK;
       bool write_samples;
   public:
@@ -386,7 +387,7 @@ class SSP : public IntMaximizeSpace {
     this->K = opt.K;                // The number of iteration to find the optimal multipliers
     this->learning_rate = opt.learning_rate; // The learning rate to update the multipliers
     this->init_value_multipliers = opt.init_value_multipliers; // The starting value of the multipliers
-      
+
     for (int i = 0; i < n; i ++){
       int len = 0;
       std::vector<int> s;
@@ -403,16 +404,33 @@ class SSP : public IntMaximizeSpace {
       IntSet c(set, len);
       variables[i] = IntVar(*this, c);
     }
-    std::vector<std::vector<float>> v; // help to initialize the local handle which will contain the multipliers and be shared between the nodes
+
+    // print the value from domain of the variables
+    // for (int i = 0; i < n; i++) {
+    //     std::cout << "Variable " << i << " : " << variables[i] << std::endl;
+    // }
+
+    std::vector<std::vector<std::vector<float>>> v; // help to initialize the local handle which will contain the multipliers and be shared between the nodes
     v.resize(n);
     for (int i = 0; i < n; ++i) {
-      float sum = 0;
       v[i].resize(m);
       for (int j = 1; j < m; ++j) {
-        v[i][j] = init_value_multipliers;
-        sum += init_value_multipliers;
+        v[i][j].resize(V);
+        for (int k = 0; k < V; ++k) {
+         v[i][j][k] = init_value_multipliers;
+        }
       }
-      v[i][0] = sum;
+    }
+
+    for (int i = 0; i < n; ++i) {
+      v[i][0].resize(V);
+      for (int k = 0; k < V; ++k) {
+        float sum = 0.0f;
+        for (int j = 1; j < m; ++j) {
+          sum += v[i][j][k];
+        }
+        v[i][0][k] = sum;
+      }
     }
 
     LI multipliers(*this, v);
@@ -462,46 +480,60 @@ class SSP : public IntMaximizeSpace {
     }
     profits_x.push_back(IntArgs(c));
     }
-  
     // The objective function
     for (int i = 0; i < n; i++) {
         element(*this, profits_x[i], variables[i], C[i]);
     }
     z = expr(*this, sum(C));
+
+    // // print the value from domain of the variables
+    // for (int i = 0; i < n; i++) {
+    //     std::cout << "Variable " << i << " : " << variables[i] << std::endl;
+    // }
+
+    std::vector<DFA> dfas;
+    std::vector<std::vector<DFA::Transition>> transitions_vectors(m, std::vector<DFA::Transition>());
+
     for (int l = 0; l < m; l++) {
       // The constraints for the transitions
-      std::vector<DFA::Transition> transitions_vec;
       int p = 0;
     
       for (int i = 0; i < Q; i++) {
         for (int k = 0; k < V; k++) {
           for (int j = 0; j < Q; j++) {
-            if (transitions[l][i][k][j] == 1) {
-              transitions_vec.push_back({i, k, j});
+            if ((transitions[l][i][k][j] == 1)) {
+              transitions_vectors[l].push_back(DFA::Transition(i, k, j));
               p++;
             }
           }
         }
       }
+
       DFA::Transition transitions_set[p+1];
+
       for (int i = 0; i < p; i++) {
-        transitions_set[i] = transitions_vec[i];
+        transitions_set[i] = transitions_vectors[l][i];
       }
-      transitions_set[p] = {-1, -1, -1};
-      int f[F]; 
+
+      transitions_set[p] = DFA::Transition(-1, 0, 0);
+
+      int f[F+1]; 
+
       for (int i = 0; i < F; i++) {
         f[i] = final_states[i];
       }
-      f[F] = -1;
-      DFA dfa(spec.initial_state(), transitions_set, f);
 
-      extensional(*this, variables, dfa);
+      f[F] = -1;
+
+      dfas.push_back(DFA(spec.initial_state(), transitions_set, f));
+
+      extensional(*this, variables, dfas[l]);
     }
 
     // print the value from domain of the variables
-    for (int i = 0; i < n; i++) {
-        std::cout << "Variable " << i << " : " << variables[i] << std::endl;
-    }
+    // for (int i = 0; i < n; i++) {
+    //     std::cout << "Variable " << i << " : " << variables[i] << std::endl;
+    // }
 
     nonemax(*this, variables);
     
@@ -527,7 +559,7 @@ class SSP : public IntMaximizeSpace {
 
     int rows = nb_items;
     int cols = nb_constraints;
-    // std::cout << "more" << std::endl;
+    //  std::cout << "more" << std::endl;
     // for (int i = 0; i < nb_items; i++) {
     //     std::cout << "Variable " << i << " : " << variables[i] << std::endl;
     // }
@@ -943,120 +975,119 @@ class SSP : public IntMaximizeSpace {
    
     }
     else if (activate_adam){
-      std::vector<std::vector<float>> m(rows, std::vector<float>(cols, 0.0));
-      std::vector<std::vector<float>> v(rows, std::vector<float>(cols, 0.0));
-      learning_rate = 1.0f;
+    //   std::vector<std::vector<float>> m(rows, std::vector<float>(cols, 0.0));
+    //   std::vector<std::vector<float>> v(rows, std::vector<float>(cols, 0.0));
+    //   learning_rate = 1.0f;
 
-      int k = 1;
-      while ((( k < 5) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6)) && (k < 1000)) { 
-        // We repeat the dynamic programming algo to solve the knapsack problem
-        // and at each iteration we update the value of the Lagrangian multipliers
-        final_fixed_bounds = 0.0f;
-        float bound_iter = 0.0f;
-        std::vector<SubProblem> subproblems;
+    //   int k = 1;
+    //   while ((( k < 5) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6)) && (k < 10)) { 
+    //     // We repeat the dynamic programming algo to solve the knapsack problem
+    //     // and at each iteration we update the value of the Lagrangian multipliers
+    //     final_fixed_bounds = 0.0f;
+    //     float bound_iter = 0.0f;
+    //     std::vector<SubProblem> subproblems;
 
-        // we create one subproblem for each knapsack constraint
-        for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
-          SubProblem subproblem;
-          subproblem.val_sub = std::vector(nb_items, std::vector<float>());
-          subproblem.domains_sub = std::vector(nb_items, std::vector<int>());
-          subproblem.states = std::vector(nb_states, 0);
-          subproblem.transitions_sub = std::vector<std::tuple<int, int, int>>();
+    //     // we create one subproblem for each knapsack constraint
+    //     for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
+    //       SubProblem subproblem;
+    //       subproblem.val_sub = std::vector(nb_items, std::vector<float>());
+    //       subproblem.domains_sub = std::vector(nb_items, std::vector<int>());
+    //       subproblem.states = std::vector(nb_states, 0);
+    //       subproblem.transitions_sub = std::vector<std::tuple<int, int, int>>();
 
-          for (int i = 0; i < nb_items; i++) {
-            for (IntVarValues j(variables[i]); j(); ++j) {
+    //       for (int i = 0; i < nb_items; i++) {
+    //         for (IntVarValues j(variables[i]); j(); ++j) {
 
-              subproblem.domains_sub[i].push_back(j.val());
-            }
-          }
+    //           subproblem.domains_sub[i].push_back(j.val());
+    //         }
+    //       }
 
-          for (int i = 0; i < nb_items; i++){
-            for (int j = 0; j < nb_states; j++) {
-              if (idx_constraint == 0) {
-                subproblem.val_sub[i].push_back(spec.profit(i, j, F) + multipliers[i][idx_constraint]);
-              }
-              else {
-                subproblem.val_sub[i].push_back(- multipliers[i][idx_constraint]);
-              }
-            }
-          }
+    //       for (int i = 0; i < nb_items; i++){
+    //         for (int j = 0; j < nb_states; j++) {
+    //           if (idx_constraint == 0) {
+    //             subproblem.val_sub[i].push_back(spec.profit(i, j, F) + multipliers[i][idx_constraint][j]);
+    //           }
+    //           else {
+    //             subproblem.val_sub[i].push_back(- multipliers[i][idx_constraint][j]);
+    //           }
+    //         }
+    //       }
 
-          for (int i = 0; i < nb_states; i++) {
-            for (IntVarValues k(variables[i]); k(); ++k) {
-              for (int j = 0; j < nb_states; j++) {
-                if (spec.transition(idx_constraint, i, k.val(), j, F, nb_items, nb_constraints,nb_states, nb_values))
-                subproblem.transitions_sub.push_back(std::tuple(i, k.val(), j));
-              }
-            }
-          }
+    //       for (int i = 0; i < nb_states; i++) {
+    //         for (IntVarValues k(variables[i]); k(); ++k) {
+    //           for (int j = 0; j < nb_states; j++) {
+    //             if (spec.transition(idx_constraint, i, k.val(), j, F, nb_items, nb_constraints,nb_states, nb_values))
+    //             subproblem.transitions_sub.push_back(std::tuple(i, k.val(), j));
+    //           }
+    //         }
+    //       }
 
-          subproblem.idx_constraint = idx_constraint;
-          subproblems.push_back(subproblem);
-        }
+    //       subproblem.idx_constraint = idx_constraint;
+    //       subproblems.push_back(subproblem);
+    //     }
 
-        for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
-          SubProblem subproblem = subproblems[id_subproblem];
+    //     for (int id_subproblem=0; id_subproblem<subproblems.size(); id_subproblem++) { // iterate on all the constraints (=subproblems of the knapsack problem)
+    //       SubProblem subproblem = subproblems[id_subproblem];
 
-          float bound = dp_ssp(subproblem.val_sub,
-                                subproblem.domains_sub,
-                                subproblem.transitions_sub,
-                                subproblem.states, 
-                                nb_states, 
-                                nb_values, 
-                                nb_items, 
-                                initial_state, 
-                                value_var_solution[id_subproblem], 
-                                false);
+    //       float bound = dp_ssp(subproblem.val_sub,
+    //                             subproblem.domains_sub,
+    //                             subproblem.transitions_sub,
+    //                             subproblem.states, 
+    //                             nb_states, 
+    //                             nb_values, 
+    //                             nb_items, 
+    //                             initial_state, 
+    //                             value_var_solution[id_subproblem], 
+    //                             false);
 
-           bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
-        //   std::cout << "bound " << bound << std::endl;
-        //   for (int i = 0; i < rows; ++i) {
-        //     std::cout << multipliers[i][id_subproblem] << " ";
-        //   std::cout << std::endl;
-        // }
-        //   for (int i = 0; i < nb_items; i++) {
-        //       std::cout << value_var_solution[id_subproblem][i] << " ";
-        //     std::cout << std::endl;
-        //   }
-        }
-        final_bound = std::min(final_bound, bound_iter);
-        bound_test.push_back(bound_iter);
+    //        bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
+    //     //   std::cout << "bound " << bound << std::endl;
+    //     //   for (int i = 0; i < rows; ++i) {
+    //     //     std::cout << multipliers[i][id_subproblem] << " ";
+    //     //   std::cout << std::endl;
+    //     // }
+    //     //   for (int i = 0; i < nb_items; i++) {
+    //     //       std::cout << value_var_solution[id_subproblem][i] << " ";
+    //     //     std::cout << std::endl;
+    //     //   }
+    //     }
+    //     final_bound = std::min(final_bound, bound_iter);
+    //     bound_test.push_back(bound_iter);
 
-        for (int i = 0; i < rows; ++i) {
-          float sum = 0;
-          for (int j = 1; j < cols; ++j) {
+    //     for (int i = 0; i < rows; ++i) {
+    //       float sum = 0;
+    //       for (int j = 1; j < cols; ++j) {
 
-              float gradient = value_var_solution[0][i] - value_var_solution[j][i];
+    //           float gradient = value_var_solution[0][i] - value_var_solution[j][i];
 
-              m[i][j] = beta1 * m[i][j] + (1 - beta1) * gradient;
+    //           m[i][j] = beta1 * m[i][j] + (1 - beta1) * gradient;
 
-              // Update biased second moment estimate
-              v[i][j] = beta2 * v[i][j] + (1 - beta2) * gradient * gradient;
+    //           // Update biased second moment estimate
+    //           v[i][j] = beta2 * v[i][j] + (1 - beta2) * gradient * gradient;
 
-              // Compute bias-corrected first moment estimate
-              float m_hat = m[i][j] / (1 - std::pow(beta1, k));
+    //           // Compute bias-corrected first moment estimate
+    //           float m_hat = m[i][j] / (1 - std::pow(beta1, k));
 
-              // Compute bias-corrected second moment estimate
-              float v_hat = v[i][j] / (1 - std::pow(beta2, k));
+    //           // Compute bias-corrected second moment estimate
+    //           float v_hat = v[i][j] / (1 - std::pow(beta2, k));
 
-            multipliers[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
+    //         multipliers[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
 
-            sum += multipliers[i][j];
-          }
-          multipliers[i][0] = sum;
-        }
-
-        // We impose the constraint z <= final_bound
-        rel(*this, z <= final_bound); 
-        k++;
-      }
-    //   std::cout << "final bound : " << final_bound << std::endl;
-    //   std::cout << "k : " << k-1 << std::endl;
-      compteur_iterations+=k-1;
+    //         sum += multipliers[i][j];
+    //       }
+    //       multipliers[i][0] = sum;
+    //     }
+    //     // We impose the constraint z <= final_bound
+    //     rel(*this, z <= final_bound); 
+    //     k++;
+    //   }
+    // //   std::cout << "final bound : " << final_bound << std::endl;
+    // //   std::cout << "k : " << k-1 << std::endl;
+    //   compteur_iterations+=k-1;
     }
     else{
-      int k = 1;
-      while ((( k < 5) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6)) && (k < 1000)) { 
+      int nb_iter = 1;
+      while ((( nb_iter < 5) || (abs(bound_test[nb_iter-2] - bound_test[nb_iter-3]) / bound_test[nb_iter-2] > 1e-6)) && (nb_iter< 50)) { 
         // We repeat the dynamic programming algo to solve the knapsack problem
         // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
@@ -1069,34 +1100,43 @@ class SSP : public IntMaximizeSpace {
           subproblem.val_sub = std::vector(nb_items, std::vector<float>());
           subproblem.domains_sub = std::vector(nb_items, std::vector<int>());
           subproblem.states = std::vector(nb_states, 0);
+          subproblem.final_states = std::vector(F, 0);
           subproblem.transitions_sub = std::vector<std::tuple<int, int, int>>();
 
           for (int i = 0; i < nb_items; i++) {
             for (IntVarValues j(variables[i]); j(); ++j) {
-
               subproblem.domains_sub[i].push_back(j.val());
             }
           }
 
+          for (int i = 0; i < nb_states; i++) {
+            subproblem.states[i] = i;
+          }
+
+          for (int i = 0; i < F; i++) {
+            subproblem.final_states.push_back(spec.final_state(i, F));
+          }
+
           for (int i = 0; i < nb_items; i++){
-            for (int j = 0; j < nb_states; j++) {
+            for (int j = 0; j < nb_values; j++) {
               if (idx_constraint == 0) {
-                subproblem.val_sub[i].push_back(spec.profit(i, j, F) + multipliers[i][idx_constraint]);
+                subproblem.val_sub[i].push_back(spec.profit(i, j, F) + multipliers[i][idx_constraint][j]);
               }
               else {
-                subproblem.val_sub[i].push_back(- multipliers[i][idx_constraint]);
+                subproblem.val_sub[i].push_back(-multipliers[i][idx_constraint][j]);
               }
             }
           }
 
           for (int i = 0; i < nb_states; i++) {
-            for (IntVarValues k(variables[i]); k(); ++k) {
+            for (int k = 0; k < nb_values; k++) {
               for (int j = 0; j < nb_states; j++) {
-                if (spec.transition(idx_constraint, i, k.val(), j, F, nb_items, nb_constraints,nb_states, nb_values))
-                subproblem.transitions_sub.push_back(std::tuple(i, k.val(), j));
+                if (spec.transition(idx_constraint, i, k, j, F, nb_items, nb_constraints,nb_states, nb_values))
+                subproblem.transitions_sub.push_back(std::tuple(i, k, j));
               }
             }
           }
+
 
           subproblem.idx_constraint = idx_constraint;
           subproblems.push_back(subproblem);
@@ -1109,6 +1149,7 @@ class SSP : public IntMaximizeSpace {
                                 subproblem.domains_sub,
                                 subproblem.transitions_sub,
                                 subproblem.states, 
+                                subproblem.final_states,
                                 nb_states, 
                                 nb_values, 
                                 nb_items, 
@@ -1117,36 +1158,45 @@ class SSP : public IntMaximizeSpace {
                                 false);
 
            bound_iter += bound; // sum all the bound of the knapsack sub-problem to update the multipliers
-        //   std::cout << "bound " << bound << std::endl;
+          std::cout << "bound " << bound << std::endl;
         //   for (int i = 0; i < rows; ++i) {
         //     std::cout << multipliers[i][id_subproblem] << " ";
         //   std::cout << std::endl;
         // }
-        //   for (int i = 0; i < nb_items; i++) {
-        //       std::cout << value_var_solution[id_subproblem][i] << " ";
-        //     std::cout << std::endl;
-        //   }
+          for (int i = 0; i < nb_items; i++) {
+              std::cout << value_var_solution[id_subproblem][i] << " ";
+          }
+          std::cout << std::endl;
         }
         final_bound = std::min(final_bound, bound_iter);
         bound_test.push_back(bound_iter);
 
         for (int i = 0; i < rows; ++i) {
-          float sum = 0;
           for (int j = 1; j < cols; ++j) {
 
-            multipliers[i][j] = multipliers[i][j] -  learning_rate *  (value_var_solution[j][i] - value_var_solution[0][i]);
+            multipliers[i][j][value_var_solution[j][i]] = multipliers[i][j][value_var_solution[j][i]] + learning_rate;
 
-            sum += multipliers[i][j];
+            multipliers[i][j][value_var_solution[0][i]] = multipliers[i][j][value_var_solution[0][i]] - learning_rate;
           }
-          multipliers[i][0] = sum;
         }
 
+        for (int i = 0; i < rows; ++i) {
+          for (int k = 0; k < nb_values; ++k) {
+            float sum = 0;
+          for (int j = 1; j < cols; ++j) {
+            sum += multipliers[i][j][k];
+          }
+          multipliers[i][0][k] = sum;
+          }
+        }
 
-         // if ( k %1 ==0) std::cout << "Iteration " << k << " : " << bound_iter << std::endl;
+        if ( nb_iter %1 ==0) std::cout << "Iteration " << nb_iter << " : " << bound_iter << std::endl;
         // We impose the constraint z <= final_bound
-        // rel(*this, z <= final_bound); 
-        k++;
+        //std::cout << "final bound : " << final_bound << std::endl;
+        nb_iter++;
       }
+      rel(*this, z <= final_bound); 
+      //std::cout << "final bound : " << final_bound << std::endl;
     }
 
     // node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2] = final_fixed_bounds;
@@ -1241,6 +1291,7 @@ float dp_ssp(std::vector<std::vector<float>> profits,
               std::vector<std::vector<int>> domain_values,
               std::vector<std::tuple<int, int, int>> transitions,
               std::vector<int> states,
+              std::vector<int> final_states,
               int nb_states,
               int nb_values,
               int nb_items,
@@ -1250,18 +1301,18 @@ float dp_ssp(std::vector<std::vector<float>> profits,
 
     // Build a graph
     
-    std::vector<std::vector<Node>> layers(nb_items + 1);
+    std::vector<std::unordered_map<int, Node>> layers(nb_items + 1);
     std::unordered_map<int, std::vector<Edge>> adjList;
 
-    layers[0].push_back({0, initialState});
+    layers[0][0] = {0,initialState};
 
-    for (int j = 1; j <= nb_items; ++j) {
-        for (const Node& prevNode : layers[j - 1]) {
+    for (int j = 1; j <= nb_items -1; ++j) {
+        for (const auto& [key, prevNode] : layers[j - 1]){
             for (int a : domain_values[j - 1]) {
                 for (const auto& [q1, label, q2] : transitions) {
                     if (prevNode.state == q1 && label == a) {
                         Node newNode = {j, q2};
-                        layers[j].push_back(newNode);
+                        layers[j][newNode.state] = newNode;
                         double cost = profits[j - 1][a];
                         adjList[j-1].push_back({prevNode, newNode, a, cost});
                     }
@@ -1270,17 +1321,30 @@ float dp_ssp(std::vector<std::vector<float>> profits,
         }
     }
 
+    for (const auto& [key, prevNode] : layers[nb_items - 1]){
+            for (int a : domain_values[nb_items - 1]) {
+                for (const auto& [q1, label, q2] : transitions) {
+                    if (prevNode.state == q1 && label == a && std::find(final_states.begin(), final_states.end(), q2) != final_states.end()){
+                        Node newNode = {nb_items, q2};
+                        layers[nb_items][newNode.state] = newNode;
+                        double cost = profits[nb_items - 1][a];
+                        adjList[nb_items-1].push_back({prevNode, newNode, a, cost});
+                    }
+                }
+            }
+        }
+
+
     std::unordered_map<Node, double, NodeHash> R;
     std::unordered_map<Node, std::pair<Node, int>, NodeHash> predecessor; // To store the path
 
     R[{0, initialState}] = 0;
 
     for (int j = 1; j <= nb_items; ++j) {
-        for (const Node& node : layers[j]) {
+        for (const auto& [key, node] : layers[j]){
             double maxCost = std::numeric_limits<double>::lowest();
             Node bestPredecessor;
             int bestLabel = - 1;
-
             for (const Edge& edge : adjList[j - 1]) {
                 if (edge.to.layer == j && edge.to.state == node.state) {
                     double newCost = R[{j - 1, edge.from.state}] + edge.cost;
@@ -1318,7 +1382,7 @@ float dp_ssp(std::vector<std::vector<float>> profits,
     }
     reverse(solutionPath.begin(), solutionPath.end());
 
-    value_var_solution = solutionPath;
+    value_var_solution = solutionPath; 
 
     return optimalBound;
 }
@@ -1346,7 +1410,7 @@ int main(int argc, char* argv[]) {
     bool activate_learning_and_adam[] = {false, false, true, false};
     bool activate_heuristic = true;
     int K = 500;
-    float learning_rate = 0.1f;
+    float learning_rate = 1.0f;
     float init_value_multipliers = 1.0f;
 
     try {
@@ -1411,7 +1475,7 @@ int main(int argc, char* argv[]) {
         for (int index_model = 0; index_model < 1; index_model++ ){
 
             for (int i = 0; i < 1; i++) {
-            std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/test/ssp-ex.txt");
+            std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/ssp-data-trainset10-20.txt");
             std::string line;
             std::vector<int> problem;
             std::vector<int> numbers;
@@ -1426,7 +1490,7 @@ int main(int argc, char* argv[]) {
                         problem.push_back(std::stoi(substring));
                     }
                 std::cout<<""<<std::endl;
-                OptionsSSP opt=OptionsSSP(true, false, false, false, activate_heuristic, K,learning_rate,init_value_multipliers, NULL , problem, false);
+                OptionsSSP opt=OptionsSSP(false, false, false, false, false, K,learning_rate,init_value_multipliers, NULL , problem, false);
                 opt.instance();
                 opt.solutions(0);
                 opt.parse(argc,argv);
