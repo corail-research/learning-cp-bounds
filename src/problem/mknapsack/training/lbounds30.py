@@ -404,10 +404,10 @@ graphs_training = load_dataset('../../../../data/mknapsack/train/pissinger/train
 #graphs_test = load_dataset('../../../../data/mknapsack/train/pissinger/trainset-30-subnodes.txt')
 
 # Create train_set and val_set
-train_data, val_data = train_test_split(graphs_training, test_size=0.2, random_state = 0)
-train_loader = DataLoader(train_data, batch_size=16, shuffle=False)
+#train_data, val_data = train_test_split(graphs_training, test_size=0.2, random_state = 0)
+train_loader = DataLoader(graphs_training[:8000], batch_size=16, shuffle=False)
 
-val_loader = DataLoader(val_data, batch_size=16, shuffle=False)
+val_loader = DataLoader(graphs_training[9000:], batch_size=16, shuffle=False)
 
 torch.cuda.empty_cache()
 
@@ -503,7 +503,7 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-torch.save(model.state_dict(), "GNN-30.pt")
+#torch.save(model.state_dict(), "GNN-30.pt")
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
@@ -513,9 +513,9 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-GPU30.pt")
+#traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-GPU30.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-GPU30.pt")
+#traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-GPU30.pt")
 
 #CPU
 
@@ -527,6 +527,6 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-CPU30.pt")
+#traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-CPU30.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-CPU30.pt")
+#traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-CPU30.pt")
