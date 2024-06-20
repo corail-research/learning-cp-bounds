@@ -18,16 +18,16 @@ def generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, 
     final_states = rd.sample(states, k=int(nb_states*prop_final_state))
     # generate the transition
 
-    index_transition = [i for i in range(nb_constraints * nb_states * nb_values * nb_states)]
-    transition = np.array([0] * nb_constraints * nb_states * nb_values * nb_states)
+    index_transition = [[i for i in range(nb_states * nb_values)] for j in range(nb_constraints)]
+    transition = [[rd.randint(0, nb_states - 1) for i in range (nb_states * nb_values)] for j in range(nb_constraints)]
 
-    profits = np.random.randint(1, 100, size=(nb_items * nb_values))
+    profits = [(sorted(np.random.randint(1, 100, size=(nb_values)))) for j in range(nb_items)]
 
     # randomly set to 0 prop_transition of the transitions
-    index_transition = rd.sample(index_transition, int(nb_constraints * nb_states * nb_values * nb_states * prop_transition))
-    for i in index_transition:
-        transition[i] = 1
-
+    index_transition_s = [rd.sample(index_transition[j], int(prop_transition * nb_states * nb_values)) for j in range(nb_constraints)] 
+    for j in range(nb_constraints):
+        for i in index_transition_s[j]:
+            transition[j][i] = -1
     problem = []
     problem.append(nb_constraints)
     problem.append(nb_items)
@@ -36,10 +36,12 @@ def generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, 
     problem.append(int(nb_states * prop_final_state))
     problem.append(initial_states)
     problem += final_states
-    problem += profits.tolist()
+    for j in range(nb_items):
+        problem += profits[j]
     for i in range(nb_items):
         problem += values
-    problem += transition.tolist()
+    for j in range(nb_constraints):
+        problem += transition[j]
     
     return problem 
 
@@ -50,9 +52,9 @@ with open("train/ssp-data-trainset10-20.txt",'w') as f:
     nb_values = 10
     nb_states = 20
     initial_states = 0
-    prop_final_state = 1
-    prop_transition = 0.02
-    for i in range (0, 1):
+    prop_final_state = 0.5
+    prop_transition = 0.3
+    for i in range (0, 10):
         problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
         line=""
         for i in range(len(problem)-1):
