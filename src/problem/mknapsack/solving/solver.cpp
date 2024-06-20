@@ -864,7 +864,7 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       learning_rate = 1.0f;
 
       int k = 1;
-      while ((( k < 3) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) )&& (k < 1000)) { // We repeat the dynamic programming algo to solve the knapsack problem
+      while ((( k < 10) || (abs(bound_test[k-2] - bound_test[k-3]) / bound_test[k-2] > 1e-6) )&& (k < 1000)) { // We repeat the dynamic programming algo to solve the knapsack problem
                                 // and at each iteration we update the value of the Lagrangian multipliers
         final_fixed_bounds = 0.0f;
         float bound_iter = 0.0f;
@@ -888,11 +888,11 @@ void nonemax(Home home, const BoolVarArgs& variables) {
             subproblem.weights_sub[i] = spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints);
 
             if (idx_constraint == 0) {
-              subproblem.val_sub[i] = spec.profit(fixed_variables[i]) + multipliers[fixed_variables[i]][idx_constraint];
+              subproblem.val_sub[i] = spec.profit(fixed_variables[i]);
             }
 
             else {
-              subproblem.val_sub[i] = -multipliers[fixed_variables[i]][idx_constraint];
+              subproblem.val_sub[i] = 0.0f;
             }
           }
           for (int i = 0; i < not_fixed_variables.size(); i++) {
@@ -965,9 +965,9 @@ void nonemax(Home home, const BoolVarArgs& variables) {
         }
 
         // We impose the constraint z <= final_bound
-        rel(*this, z <= final_bound); 
         k++;
       }
+    rel(*this, z <= final_bound); 
     //   std::cout << "final bound : " << final_bound << std::endl;
     //   std::cout << "k : " << k-1 << std::endl;
       compteur_iterations+=k-1;
@@ -1184,11 +1184,10 @@ std::string n_model = argv[2];
   int K = 500;
   float learning_rate = 1.0f;
   float init_value_multipliers = 1.0f;
-
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
-     module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-100.pt");
-     module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-100.pt");
+     module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU30.pt");
+     module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-CPU30.pt");
 
   }
   catch (const c10::Error& e) {
@@ -1243,8 +1242,13 @@ else
 
     }
     else {
-  for (int index_size = 2; index_size < number_of_sizes; index_size++) {
-    for (int index_model = 1; index_model < number_of_models ; index_model++ ){
+  for (int index_size = 0; index_size < number_of_sizes; index_size++) {
+  try {
+    // Deserialize the ScriptModule from a file using torch::jit::load().
+     module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU" + sizes[index_size] + ".pt");
+     module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-CPU"+ sizes[index_size]+ ".pt");
+  }
+    for (int index_model = 0; index_model < number_of_models ; index_model++ ){
 
         for (int i = 0; i < 1; i++) {
         std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/test/pissinger/knapsacks-data-testset" + sizes[index_size] + ".txt");

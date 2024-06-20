@@ -9,12 +9,12 @@ def generate_knapsack(nb_items,nb_constraints, P, tightness):
     profits = ss.expon.rvs(*P, size=nb_items)
     for i in range(len(profits)):
         profits[i]=int(profits[i])
-    profits = np.random.randint(low=0,high=1000,size=nb_items)
+    profits = np.random.randint(low=0,high=500,size=nb_items)
     profits = sorted(profits,reverse=True)
     W=[]
     capacities=[]
     for j in range (0,nb_constraints):
-        weights= np.random.randint(low=500,high=600,size=nb_items)
+        weights= np.random.randint(low=50,high=100,size=nb_items)
         weights=np.fmax(np.zeros(nb_items),weights)
         capacity=int(tightness[j]*np.sum(weights))
         W.append(weights)
@@ -31,7 +31,7 @@ with open("train/pissinger/knapsacks-data-trainset30.txt",'w') as f:
     # plot the fitted distribution
     nb_constraints=5
     nb_items = 30
-    for i in range (0, 50):
+    for i in range (0, 500):
         tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
         knapsack=generate_knapsack(nb_items,5,Ps, tightness)
         line=""
