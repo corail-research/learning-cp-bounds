@@ -1206,16 +1206,7 @@ std::string n_model = argv[2];
   int K = 500;
   float learning_rate = 1.0f;
   float init_value_multipliers = 1.0f;
-  try {
-    // Deserialize the ScriptModule from a file using torch::jit::load().
-     module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU30.pt");
-     module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-CPU30.pt");
 
-  }
-  catch (const c10::Error& e) {
-    std::cerr << "error with loading the models \n";
-    return -1;
-  }
 
     bool write_samples;
   if (strcmp(argv[3], "write_samples") == 0)
@@ -1352,4 +1343,3 @@ namespace {
   };
 
 }
-
