@@ -1,14 +1,9 @@
 import random as rd
 import numpy as np
 import matplotlib.pyplot as plt
-import os
-import scipy.stats as ss
 
 
 def generate_knapsack(nb_items,nb_constraints, P, tightness):
-    profits = ss.expon.rvs(*P, size=nb_items)
-    for i in range(len(profits)):
-        profits[i]=int(profits[i])
     profits = np.random.randint(low=0,high=500,size=nb_items)
     profits = sorted(profits,reverse=True)
     W=[]
