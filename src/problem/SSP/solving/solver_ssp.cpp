@@ -119,11 +119,11 @@ namespace {
         }
         /// Return 1 if the value j is in the domain of variable i and 0 otherwise
         int value(int i, int j, int nb_final_states, int nb_items, int nb_values) const {
-        return pData[6 + nb_final_states + nb_items * nb_values + j * nb_items + i ];
+        return pData[6 + nb_final_states + nb_items * nb_values + i * nb_values + j ];
         }
         /// Return the next state if the transition from state i with value k is possible and -1 otherwise for constraint l
         int transition(int l, int i, int k,  int nb_final_states, int nb_items, int nb_constraints, int nb_states, int nb_values) const {
-        return pData[6 + nb_final_states + nb_items * nb_values + nb_items * nb_values + k * nb_states + i + l * nb_values * nb_states ];
+        return pData[6 + nb_final_states + nb_items * nb_values + nb_items * nb_values + i * nb_values + k + l * nb_values * nb_states ];
         }
         // /// Return the optimal value (last value in the instance file)
         // int optimal(int nb_items, int nb_constraints) const {
@@ -596,64 +596,57 @@ class SSP : public IntMaximizeSpace {
     //         value_var_solution[i][j] = 0;
     //     }
     // }
-    int* diff_var_solution = new int[rows-1]; // store the difference between the value of the variable and the value of the other variables in the solution
 
     float final_bound = std::numeric_limits<float>::max();
     std::vector<float> bound_test;
-    
-    // std::vector<int> not_fixed_variables;
-    // std::vector<int> fixed_variables;
 
     std::string dicstr(nb_items,' ');
 
-    // for (int k = 0; k < nb_items; k++){
-    //   if (variables[k].size()>=2) {
-    //     dicstr[k]='2';
-    //     not_fixed_variables.push_back(k);
-    //     for (int j=0;j<cols;j++) {
-    //             value_var_solution[k][j]=0; }
-    //   }
+    int* node_problem=new int[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 2];
+    
+    if (write_samples) {
 
-    // else{
-    //   fixed_variables.push_back(k);
-    //   if (variables[k].val()==1) { 
-    //       dicstr[k]='1';
-    //         for (int j=0;j<cols;j++) {
-    //             value_var_solution[k][j]=variables[k].val(); }
-    //     }
-    //   else {
-    //       dicstr[k]='0';
-    //   }
-    // }
-    // }
+      node_problem[0]=nb_constraints;
+      node_problem[1]=nb_items;
+      node_problem[2]=nb_values;
+      node_problem[3]=nb_states;
+      node_problem[4]=F;
+      node_problem[5]=initial_state;
 
-    // int size_unfixed=not_fixed_variables.size();
-    // int* node_problem=new int[size_unfixed*(nb_constraints+1)+nb_constraints+2 + 1 + 1];
+      for (int k=0;k<F;k++) {
+          node_problem[6+k]=spec.final_state(k,F);
+        }
+      
+      for (int i=0;i<nb_items;i++) {
+          for (int j=0;j<nb_values;j++) {
+              node_problem[6+F+i*nb_values+j]=spec.profit(i,j,F);
+          }
+      }
 
-    // TODO : change the subnode writing 
+      for (int i=0;i<nb_items;i++) {
+          for (int j=0;j<nb_values;j++) {
+              node_problem[6+F+nb_items*nb_values+i*nb_values+j]=0;
+              dicstr[i*nb_values+j]='0';
+          }
+      }
 
-    // node_problem[0]=nb_constraints;
-    // node_problem[1]=size_unfixed;
-
-    // for (int k=0;k<size_unfixed;k++) {
-    //     node_problem[2+k]=spec.profit(not_fixed_variables[k]);
-    //   }
-
-    // for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
-    //     int capacity_unfixed=spec.capacity(idx_constraint,nb_items);
-
-    //     for (int i=0;i<fixed_variables.size();i++) {
-    //         capacity_unfixed-=spec.weight(idx_constraint, fixed_variables[i] , nb_items, nb_constraints)*variables[fixed_variables[i]].val();
-    //     }
-
-    //     node_problem[2+size_unfixed+idx_constraint]=capacity_unfixed;
-    // }
-
-    // for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
-    //     for (int i=0;i<size_unfixed;i++) {
-    //         node_problem[2+(idx_constraint+1)*size_unfixed+nb_constraints+i]=spec.weight(idx_constraint, not_fixed_variables[i] , nb_items, nb_constraints);
-    //     }
-    // }
+      for (int i = 0; i < nb_items; i++) {
+              for (IntVarValues j(variables[i]); j(); ++j) {
+                node_problem[6+F+nb_items*nb_values+i*nb_values+j.val()] = 1;
+                dicstr[i*nb_values+j.val()]='1';
+              }
+            }
+      
+      for (int l=0;l<nb_constraints;l++) {
+          for (int i=0;i<nb_states;i++) {
+              for (int k=0;k<nb_values;k++) {
+                  for (int j=0;j<nb_states;j++) {
+                      node_problem[6+F+nb_items*nb_values+nb_items*nb_values+l*nb_states*nb_values+i*nb_values+j]=spec.transition(l,i,k,F,nb_items,nb_constraints,nb_states,nb_values);
+                  }
+              }
+          }
+      }
+    }
 
     if (activate_learning_and_adam){
     //   std::vector<torch::jit::IValue> inputs;
@@ -1251,7 +1244,7 @@ class SSP : public IntMaximizeSpace {
           }
         }
 
-         if ( nb_iter %1 ==0) std::cout << "Iteration " << nb_iter << " : " << bound_iter << std::endl;
+        // if ( nb_iter %1 ==0) std::cout << "Iteration " << nb_iter << " : " << bound_iter << std::endl;
         // We impose the constraint z <= final_bound
         //std::cout << "final bound : " << final_bound << std::endl;
         nb_iter++;
@@ -1265,21 +1258,21 @@ class SSP : public IntMaximizeSpace {
       // std::cout << "final bound : " << final_bound << std::endl;
     }
 
-    // node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2] = final_fixed_bounds;
-    // node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2 + 1] = final_bound;
-    // if (write_samples) {
-    //   if ((set_nodes.count(dicstr)==0) and (size_unfixed>=5) ) { // and (size_unfixed>=5)  and (size_unfixed<=30)
-    //       set_nodes.insert(dicstr);
+    if (write_samples) {
+      node_problem[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values] = final_fixed_bounds;
+      node_problem[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1] = final_bound;
+      if (set_nodes.count(dicstr)==0) { // 
+          set_nodes.insert(dicstr);
 
-    //       if (outputFileMK->is_open()) {
-    //       for (int i=0;i<size_unfixed*(nb_constraints+1)+nb_constraints+3;i++) {
-    //           *outputFileMK << node_problem[i]<<",";
-    //         }
+          if (outputFileMK->is_open()) {
+          for (int i=0;i<6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1;i++) {
+              *outputFileMK << node_problem[i]<<",";
+            }
 
-    //       *outputFileMK << node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+3]<<"\n";
-    //       } 
-    //     } 
-    //   }
+          *outputFileMK << node_problem[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1]<<"\n";
+          } 
+        } 
+      }
 
     // for (int i = 0; i < rows; ++i) {
     //   delete[] value_var_solution[i];
@@ -1551,7 +1544,7 @@ int main(int argc, char* argv[]) {
                         problem.push_back(std::stoi(substring));
                     }
                 std::cout<<""<<std::endl;
-                OptionsSSP opt=OptionsSSP(true, true, false, false, false, K,learning_rate,init_value_multipliers, NULL , problem, false);
+                OptionsSSP opt=OptionsSSP(true, false, false, false, true, K,learning_rate,init_value_multipliers, NULL , problem, false);
                 opt.instance();
                 opt.solutions(0);
                 opt.parse(argc,argv);
