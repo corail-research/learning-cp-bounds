@@ -869,6 +869,15 @@ void nonemax(Home home, const BoolVarArgs& variables) {
       std::vector<std::vector<float>> v(rows, std::vector<float>(cols, 0.0));
       learning_rate = 0.10f;
 
+      for (int i = 0; i < size_unfixed; i++) {
+        float sum = 0.0f;
+        for (int j = 1; j < cols; j++) {
+          multipliers[not_fixed_variables[i]][j] = init_value_multipliers;
+          sum += multipliers[not_fixed_variables[i]][j];
+        }
+        multipliers[not_fixed_variables[i]][0] = sum;
+      }
+
       int nb_iter= 1;
       while ((( nb_iter < 10) || (abs(bound_test[nb_iter-2] - bound_test[nb_iter-3]) / bound_test[nb_iter-2] > 1e-6) )&& (nb_iter < 1000)) { // We repeat the dynamic programming algo to solve the knapsack problem
                                 // and at each iteration we update the value of the Lagrangian multipliers
@@ -1079,8 +1088,11 @@ void nonemax(Home home, const BoolVarArgs& variables) {
 
     node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2] = final_fixed_bounds;
     node_problem[size_unfixed*(nb_constraints+1)+nb_constraints+2 + 1] = final_bound;
+    // sample a random number between 0 and 1
+    float r = (float)rand() / (float)RAND_MAX;
+
     if (write_samples) {
-      if ((set_nodes.count(dicstr)==0) and (size_unfixed>=5) ) { // and (size_unfixed>=5)  and (size_unfixed<=30)
+      if (((set_nodes.count(dicstr)==0) and (size_unfixed>=5)) and (r > 0.05)) { // and (size_unfixed>=5)  and (size_unfixed<=30)
           set_nodes.insert(dicstr);
 
           if (outputFileMK->is_open()) {
@@ -1340,3 +1352,4 @@ namespace {
   };
 
 }
+
