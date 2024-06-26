@@ -48,13 +48,13 @@ def generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, 
 with open("train/ssp-data-trainset10-20.txt",'w') as f:
 
     nb_constraints=2
-    nb_items = 50
+    nb_items = 30
     nb_values = 10
     nb_states = 20
     initial_states = 0
     prop_final_state = 0.5
     prop_transition = 0.3
-    for i in range (0, 10):
+    for i in range (0, 1):
         problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
         line=""
         for i in range(len(problem)-1):

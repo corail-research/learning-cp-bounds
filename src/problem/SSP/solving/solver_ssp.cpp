@@ -600,9 +600,9 @@ class SSP : public IntMaximizeSpace {
     float final_bound = std::numeric_limits<float>::max();
     std::vector<float> bound_test;
 
-    std::string dicstr(nb_items,' ');
+    std::string dicstr(nb_items * nb_values,' ');
 
-    int* node_problem=new int[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 2];
+    int* node_problem=new int[6 + F + 2 * nb_values * nb_items + nb_constraints * nb_states * nb_values + 2];
     
     if (write_samples) {
 
@@ -640,9 +640,7 @@ class SSP : public IntMaximizeSpace {
       for (int l=0;l<nb_constraints;l++) {
           for (int i=0;i<nb_states;i++) {
               for (int k=0;k<nb_values;k++) {
-                  for (int j=0;j<nb_states;j++) {
-                      node_problem[6+F+nb_items*nb_values+nb_items*nb_values+l*nb_states*nb_values+i*nb_values+j]=spec.transition(l,i,k,F,nb_items,nb_constraints,nb_states,nb_values);
-                  }
+                      node_problem[6+F+nb_items*nb_values+nb_items*nb_values+l*nb_states*nb_values+i*nb_values+k]=spec.transition(l,i,k,F,nb_items,nb_constraints,nb_states,nb_values);
               }
           }
       }
@@ -1258,21 +1256,27 @@ class SSP : public IntMaximizeSpace {
       // std::cout << "final bound : " << final_bound << std::endl;
     }
 
-    if (write_samples) {
-      node_problem[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values] = final_fixed_bounds;
-      node_problem[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1] = final_bound;
+    // sample a random number bewteen 0 and 1
+    float r = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+
+
+    if ((write_samples) and (r < 0.05)) {
+      node_problem[6+F+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values] = final_fixed_bounds;
+      node_problem[6+F+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1] = final_bound;
       if (set_nodes.count(dicstr)==0) { // 
           set_nodes.insert(dicstr);
 
           if (outputFileMK->is_open()) {
-          for (int i=0;i<6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1;i++) {
+          for (int i=0;i<6+F+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1;i++) {
               *outputFileMK << node_problem[i]<<",";
             }
 
-          *outputFileMK << node_problem[6+nb_items+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1]<<"\n";
+          *outputFileMK << node_problem[6+F+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1]<<"\n";
           } 
         } 
       }
+
+    delete[] node_problem;
 
     // for (int i = 0; i < rows; ++i) {
     //   delete[] value_var_solution[i];
@@ -1485,11 +1489,10 @@ int main(int argc, char* argv[]) {
         write_samples = false;
 
         if (write_samples) {
-            for (int index_size = 2; index_size < number_of_sizes; index_size++) {
+            for (int index_size = 0; index_size < 1; index_size++) {
             
-            std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/ssp-data-trainset" + sizes[index_size] + ".txt");
-
-            std::ofstream outputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/trainset-"+ sizes[index_size] + "-subnodes.txt");
+            std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/ssp-data-trainset10-20.txt");
+            std::ofstream outputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/trainset-ssp-data-trainset10-20-subnodes.txt");
             bool activate_bound_computation = true;
             bool activate_adam = true;
             bool activate_learning_prediction = false;
