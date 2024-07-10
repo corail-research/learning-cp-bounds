@@ -2,11 +2,11 @@ import os
 import pandas as pd
 import numpy as np
 
-
 def extract_data(input_file):
     with open(input_file, 'r') as file:
         lines = file.readlines()
-
+    
+    # Initialize lists to store data
     nodes = []
     nodes_per_models = []
     times = []
@@ -15,10 +15,10 @@ def extract_data(input_file):
     times_per_sizes = []
     index = 0
     
+    # Process each line in the input file
     for line in lines:
-        # if index == 2:
-        #     break
         line = line.strip()
+        
         if line == "separateur_de_modeles":
             index += 1
             if nodes_per_models:
@@ -27,6 +27,7 @@ def extract_data(input_file):
             if times_per_models:
                 times_per_sizes.append(times_per_models)
                 times_per_models = []
+        
         elif line == "separateur de taille":
             if nodes_per_sizes:
                 nodes.append(nodes_per_sizes)
@@ -34,9 +35,11 @@ def extract_data(input_file):
             if times_per_sizes:
                 times.append(times_per_sizes)
                 times_per_sizes = []
+        
         elif line.startswith("runtime:"):
             time = float(line.split(":")[1].strip().split(' ')[0].strip())
             times_per_models.append(time)
+        
         elif line.startswith("nodes"):
             node = int(line.split(":")[1].strip())
             nodes_per_models.append(node)
@@ -54,17 +57,22 @@ def extract_data(input_file):
     
     return nodes, times
 
+# Define model and size labels
 models = ["model1", "model2", "model3", "model4", "model5"]
 sizes = ["30", "50", "100", "200"]
 
+# Extract data from the input file
 nodes, times = extract_data("solutions.txt")
 
+# Initialize dictionaries to store data for DataFrame creation
 data_nodes = {}
 data_times = {}
 
 # Convert lists to numpy arrays for easy manipulation
 nodes_array = np.array(nodes, dtype=np.float64)
 times_array = np.array(times, dtype=np.float64)
+
+# Print to check the shape and content of the arrays
 print(times_array)
 print(times_array.shape)
 
@@ -72,6 +80,7 @@ print(times_array.shape)
 nodes_data = np.mean(nodes_array, axis=2)
 times_data = np.mean(times_array, axis=2)
 
+# Populate dictionaries with average data
 for i, nodes_per_sizes in enumerate(nodes_data):
     data_nodes[sizes[i]] = nodes_per_sizes
 

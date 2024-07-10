@@ -2,13 +2,10 @@ import json
 from pathlib import Path
 import pandas as pd
 import os
-import sklearn as sk
 import numpy as np
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from sklearn.metrics import f1_score, accuracy_score
-from sklearn.model_selection import train_test_split
 import os
 
 import torch
@@ -23,6 +20,8 @@ from torch_geometric.data import Dataset, download_url
 import torch.optim as optim
 
 from numba import cuda
+
+import wandb
 
 def load_dataset(file_path):
     """
@@ -369,6 +368,7 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
       f"val diff ecart opt {val_diff_ecart_opt[-1] * 100}%,\n"
                   
                  )
+            wandb.log({"train_loss": train_loss[-1], "val_loss": val_loss[-1], "train_diff_ecart_opt": train_diff_ecart_opt[-1], "val_diff_ecart_opt": val_diff_ecart_opt[-1]})
 
 
     return train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt
@@ -399,15 +399,30 @@ def plotter(train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt):
     plt.show()
 
 
+# start a new wandb run to track this script
+wandb.init(
+    # set the wandb project where this run will be logged
+    project="learning_bounds_mknapsack",
+
+    # track hyperparameters and run metadata
+    config={
+    "learning_rate": 0.001,
+    "architecture": "GNN-GatedGraphConv",
+    "layers" : "128, 16, 64, 64, 256, 128, 32, 32",
+    "dataset": "mknapsack-50",
+    "epochs": 10
+    }
+)
+
+
 ## Train the models
-graphs_training = load_dataset('../../../../data/mknapsack/train/pissinger/trainset-30-subnodes.txt')
-#graphs_test = load_dataset('../../../../data/mknapsack/train/pissinger/trainset-30-subnodes.txt')
+graphs_training = load_dataset('../../../../data/mknapsack/train/pissinger/trainset-50-subnodes-subsampled.txt')
 
 # Create train_set and val_set
 #train_data, val_data = train_test_split(graphs_training, test_size=0.2, random_state = 0)
-train_loader = DataLoader(graphs_training[:8000], batch_size=16, shuffle=False)
+train_loader = DataLoader(graphs_training[:-2500], batch_size=16, shuffle=False)
 
-val_loader = DataLoader(graphs_training[9000:], batch_size=16, shuffle=False)
+val_loader = DataLoader(graphs_training[-2000:], batch_size=16, shuffle=False)
 
 torch.cuda.empty_cache()
 
@@ -418,6 +433,9 @@ def criterion(bounds):
 
 model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
 
+# load the weights for model
+model.load_state_dict(torch.load("GNN-50.pt"))
+
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.9, patience=20)
@@ -425,11 +443,6 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', fa
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 10, device)
-
-## Print the results
-
-# plot
-plotter(train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt)
 
 ## Save the models
 
@@ -503,7 +516,7 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-#torch.save(model.state_dict(), "GNN-30.pt")
+torch.save(model.state_dict(), "GNN-50-b.pt")
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
@@ -513,9 +526,9 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-#traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-GPU30.pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-GPU50-b.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-#traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-GPU30.pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-GPU50-b.pt")
 
 #CPU
 
@@ -527,6 +540,9 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-#traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-CPU30.pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-CPU50-b.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-#traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-CPU30.pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-CPU50-b.pt")
+
+
+wandb.finish()

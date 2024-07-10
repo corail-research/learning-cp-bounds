@@ -10,6 +10,16 @@
 #include <random>
 #include <cstdlib>
 #include <unistd.h>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <future>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <signal.h>
 
 using namespace Gecode;
 
@@ -570,14 +580,10 @@ class SSP : public IntMaximizeSpace {
     const int nb_states = spec.nb_states();
     const int F = spec.nb_final_states();
     const int initial_state = spec.initial_state();
-    int val[nb_items];
-    int profits[nb_items][nb_values];
-    int transitions[nb_constraints][nb_states][nb_values][nb_states];
     float final_fixed_bounds = 0.0f;
     float beta1 = 0.9;
     float beta2 = 0.999;
     float epsilon = 1e-8;
-
     int rows = nb_items;
     int cols = nb_constraints;
     //  std::cout << "more" << std::endl;
@@ -990,7 +996,6 @@ class SSP : public IntMaximizeSpace {
       std::vector<std::vector<std::vector<float>>> m(rows, std::vector(cols, std::vector(nb_items, 0.0f)));
       std::vector<std::vector<std::vector<float>>> v(rows, std::vector(cols, std::vector(nb_items, 0.0f)));
       learning_rate = 0.5f;
-
       int nb_iter = 1;
       while ((( nb_iter < 5) || (abs(bound_test[nb_iter-2] - bound_test[nb_iter-3]) / bound_test[nb_iter-2] > 1e-4)) && (nb_iter < 60)) { 
         // We repeat the dynamic programming algo to solve the knapsack problem
@@ -1149,6 +1154,13 @@ class SSP : public IntMaximizeSpace {
         float bound_iter = 0.0f;
         std::vector<SubProblem> subproblems;
 
+        for (int i = 0; i < cols; ++i) {
+          float sum = 0;
+          for (int j = 0; j < rows; ++j) {
+              value_var_solution[i][j] = -1;
+          }
+        }
+
         // we create one subproblem for each knapsack constraint
         for (int idx_constraint=0; idx_constraint<nb_constraints; idx_constraint++) {
           SubProblem subproblem;
@@ -1253,14 +1265,12 @@ class SSP : public IntMaximizeSpace {
       catch (Exception e) {
         rel(*this, z <= -1);
       }
-      // std::cout << "final bound : " << final_bound << std::endl;
     }
 
     // sample a random number bewteen 0 and 1
     float r = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
 
-
-    if ((write_samples) and (r < 0.05)) {
+    if ((write_samples) and (r < 0.2)) {
       node_problem[6+F+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values] = final_fixed_bounds;
       node_problem[6+F+ 2 * nb_values*nb_items + nb_constraints*nb_states*nb_values + 1] = final_bound;
       if (set_nodes.count(dicstr)==0) { // 
@@ -1422,13 +1432,23 @@ float dp_ssp(std::vector<std::vector<float>> profits,
     }
 
     // Find the optimal bound for the constraint
+    bool feasible = false;
     double optimalBound = std::numeric_limits<double>::lowest();
     Node endNode;
     for (const auto& [key, finalNode] : layers[nb_items]){
         if (R[finalNode] > optimalBound) {
             optimalBound = R[finalNode];
             endNode = finalNode;
+            feasible = true;
         }
+    }
+
+    if (!feasible) {
+        if (verbose) {
+            std::cout << "No feasible solution found." << std::endl;
+            std::cout << "optimal bound: " << optimalBound << std::endl;
+        }
+        return optimalBound;
     }
 
     // Backtrack to find the solution path
@@ -1445,13 +1465,59 @@ float dp_ssp(std::vector<std::vector<float>> profits,
     return optimalBound;
 }
 
-  /// Print solution
+/// Print solution
   virtual void
   print(std::ostream& os) const {
     os << "z: " << z << std::endl;
     os << "variables: " << variables << std::endl;
   }
 };
+
+
+// Function to execute task in a separate process
+bool executeWithTimeout(std::function<void()> func, std::chrono::minutes timeout) {
+    pid_t pid = fork();
+
+    if (pid == -1) {
+        std::cerr << "Failed to fork process" << std::endl;
+        return false;
+    }
+
+    if (pid == 0) {
+        // Child process
+        func();
+        exit(0);
+    } else {
+        // Parent process
+        auto start = std::chrono::steady_clock::now();
+        while (true) {
+            int status;
+            pid_t result = waitpid(pid, &status, WNOHANG);
+
+            if (result == 0) {
+                // Child still running
+                auto now = std::chrono::steady_clock::now();
+                if (std::chrono::duration_cast<std::chrono::minutes>(now - start) >= timeout) {
+                    // Timeout reached, kill the child process
+                    kill(pid, SIGKILL);
+                    std::cout << "Execution time exceeded " << timeout.count() << " minutes" << std::endl;
+                    return false;
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            } else if (result == pid) {
+                // Child exited
+                if (WIFEXITED(status)) {
+                    return WEXITSTATUS(status) == 0;
+                } else {
+                    return false;
+                }
+            } else {
+                std::cerr << "Error waiting for child process" << std::endl;
+                return false;
+            }
+        }
+    }
+}
 
 int main(int argc, char* argv[]) {
 
@@ -1460,7 +1526,7 @@ int main(int argc, char* argv[]) {
     int number_of_sizes = std::stoi(n_size);
     int number_of_models = std::stoi(n_model);
 
-    std::string sizes[] = {"30", "50", "100", "200"};
+    std::string sizes[] = {"10-20", "10-80", "20-20", "20-80"};
 
     bool activate_bound_computation[] = {true, true, true, false};
     bool activate_adam[] = {true, false, false, false};
@@ -1489,12 +1555,11 @@ int main(int argc, char* argv[]) {
         write_samples = false;
 
         if (write_samples) {
-            for (int index_size = 0; index_size < 1; index_size++) {
-            
-            std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/ssp-data-trainset10-20.txt");
-            std::ofstream outputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/trainset-ssp-data-trainset10-20-subnodes.txt");
+            for (int index_size = 0; index_size < number_of_sizes; index_size++) {
+            std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/ssp/train/ssp-data-trainset"+ sizes[index_size]+".txt");
+            //std::ofstream outputFilea("./data/ssp/train/ssp-data-trainset"+ sizes[index_size]+"-subnodes.txt");
             bool activate_bound_computation = true;
-            bool activate_adam = true;
+            bool activate_adam = false;
             bool activate_learning_prediction = false;
             bool activate_learning_and_adam = false;
 
@@ -1506,6 +1571,7 @@ int main(int argc, char* argv[]) {
         while (std::getline(inputFilea, line)) {
 
             //std::ofstream outputFilea(std::to_string(j) + ".txt");
+            std::ofstream outputFilea("/home/darius/scratch/learning-bounds/data/ssp/train/ssp-data-trainset"+ sizes[index_size]+"-subnodes" + std::to_string(j) +  " .txt");
 
             set_nodes.clear();
             std::vector<int> problem;
@@ -1515,14 +1581,22 @@ int main(int argc, char* argv[]) {
                     problem.push_back(std::stoi(substring));
                 }
             std::cout<<""<<std::endl;
-            OptionsSSP opt=OptionsSSP(activate_bound_computation, activate_adam, activate_learning_prediction, activate_learning_and_adam, activate_heuristic, K,learning_rate,init_value_multipliers, &outputFilea , problem, true);
-            opt.instance();
-            opt.solutions(0);
-            opt.parse(argc,argv);
-            IntMaximizeScript::run<SSP,BAB,OptionsSSP>(opt);
+
+            auto task = [&]() {
+                    OptionsSSP opt(true, false, false, false, activate_heuristic, K, learning_rate, init_value_multipliers, &outputFilea, problem, true);
+                    opt.instance();
+                    opt.solutions(0);
+                    opt.parse(argc, argv);
+                    IntMaximizeScript::run<SSP, BAB, OptionsSSP>(opt);
+                };
+
+                std::chrono::minutes timeout(15);
+                if (!executeWithTimeout(task, timeout)) {
+                    std::cout << "Execution time exceeded 10 min for problem " << j << std::endl;
+                }
+            outputFilea.close();
             j++;
             }
-            outputFilea.close();
             inputFilea.close(); // Close the file when done
             }
 
@@ -1532,7 +1606,7 @@ int main(int argc, char* argv[]) {
         for (int index_model = 0; index_model < 1; index_model++ ){
 
             for (int i = 0; i < 1; i++) {
-            std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/ssp-data-trainset10-20.txt");
+            std::ifstream inputFilea("/home/darius/scratch/learning-bounds/learning-bounds/data/ssp/train/ssp-data-trainset10-20.txt");
             std::string line;
             std::vector<int> problem;
             std::vector<int> numbers;
