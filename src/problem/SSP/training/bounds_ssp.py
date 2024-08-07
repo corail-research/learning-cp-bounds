@@ -558,7 +558,7 @@ class GNN(torch.nn.Module):
               else:
                     bound -= u[idx_constraint * problem[1] * problem[2] + value_var_solutions[idx_var] + idx_var * problem[2]]
 
-        return bound
+        return bound, u
     
 
 def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_epochs, device="cpu"):
@@ -647,28 +647,26 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
 
     return train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt
 
-# start a new wandb run to track this script
-wandb.init(
-    # set the wandb project where this run will be logged
-    project="lbounds_ssp",
+# # # start a new wandb run to track this script
+# wandb.init(
+#     # set the wandb project where this run will be logged
+#     project="lbounds_ssp",
 
-    # track hyperparameters and run metadata
-    config={
-    "learning_rate": 0.0001,
-    "architecture": "GNN-GatedGraphConv",
-    "layers" : " 32, 16, 32, 64, 128, 64, 32, 16, 16",
-    "dataset": "ssp-10-20",
-    "epochs": 10
-    }
-)
+#     # track hyperparameters and run metadata
+#     config={
+#     "learning_rate": 0.0001,
+#     "architecture": "GNN-GatedGraphConv",
+#     "layers" : " 32, 16, 32, 64, 128, 64, 32, 16, 16",
+#     "dataset": "ssp-10-80",
+#     "epochs": 10
+#     }
+# )
 
 ## Train the models
-graphs_training = load_dataset('/home/darius/scratch/learning-bounds/data/ssp/train/trainset-ssp-data10-20.txt')
-graphs_val = load_dataset('/home/darius/scratch/learning-bounds/data/ssp/train/valset-ssp-data10-20.txt')
+graphs_training = load_dataset('/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/test/ssp-data-testset10-20.txt')
+
 print("len(graphs_training): ", len(graphs_training))
-print("len(graphs_val): ", len(graphs_val))
-train_loader = torch_geometric.loader.DataLoader(graphs_training, batch_size=1, shuffle=True)
-val_loader = torch_geometric.loader.DataLoader(graphs_val, batch_size=1, shuffle=True)
+train_loader = torch_geometric.loader.DataLoader(graphs_training, batch_size=1, shuffle=False)
 
 torch.cuda.empty_cache()
 
@@ -677,119 +675,154 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 def criterion(bounds):
     return torch.mean(bounds)
 
-model = GNN(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
+# model = GNN(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
+# model.load_state_dict(torch.load('GNN-SSP-10-20.pt'))
 
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.9, patience=5)
+# scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.9, patience=5)
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 15, device)
-
+# device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
-class GNNsup1(torch.nn.Module):
-    def __init__(self, n_features_nodes, n_classes, n_hidden, dropout, device):
-        super(GNNsup1, self).__init__()
+# # train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 20, device)
+# bounds_learning = []
 
-        self.device = device
+# for data in train_loader:
+#     model.train()
+#     optimizer.zero_grad()
+#     bound = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem[0])[0]
+#     y = data.opt.to(device)
+#     gobal_bound = bound.to(device)
+#     bounds_learning.append(torch.mean(gobal_bound).detach().item())
 
-       # Define the linear layers for the graph embedding
-        self.linear_embedding = nn.Linear(n_features_nodes, n_hidden[0])
-        self.linear_embedding2 = nn.Linear(n_hidden[0], n_hidden[1])
-        self.linear_embedding3 = nn.Linear(n_hidden[1], n_hidden[2])
+# bounds_learning_grad = []
 
-        # Define the graph convolutional layers
-        self.conv1 = gnn.ResGatedGraphConv( n_hidden[2], n_hidden[3], edge_dim = 21)
-        self.conv2 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 21)
-        self.conv3 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 21)
+# for data in train_loader:
+#     problems = data.graph_problem
+#     bounds_learning_grad_sublist = []
+#     model.train()
+#     optimizer.zero_grad()
+#     bound, u = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem[0])
+#     y = data.opt.to(device)
+#     #gobal_bound = data.fix_bound.to(device) + bound.to(device)
+#     #bounds_learning_grad.append(torch.mean(gobal_bound).detach().item())
+#     for k in range(60):
+#         compteur = 0
+#         for idx_batch, problem in enumerate(data.graph_problem):
+#             values_var_solutions = []
+#             bound = 0
+#             for idx_constraint in range(problem[0]):
+#                 profits = [0 for i in range(problem[1] * problem[2])]
+#                 for idx in range(0, problem[1] * problem[2]):
+#                     if idx_constraint == 0:
+#                         profits[idx] = problem[6 + problem[4] + idx] 
+#                         for j in range(1, problem[0]):
+#                             profits[idx] += u[j * problem[1] * problem[2] + idx]
+#                     else:
+#                         profits[idx] =  - u[idx_constraint * problem[1] * problem[2] + idx]
+#                 values = problem[6 + problem[4] + problem[1] * problem[2] : 6 + problem[4] + 2 * problem[1] * problem[2]]
+#                 transitions = problem[6 + problem[4] + 2 * problem[1] * problem[2] + idx_constraint * problem[2] * problem[3]: 6 + problem[4] + 2 * problem[1] * problem[2] + (idx_constraint + 1) * problem[2] * problem[3]]
+#                 states = [i for i in range(problem[3])]
+#                 final_states = problem[6: 6 + problem[4]]
+#                 nb_states = problem[3]
+#                 nb_values = problem[2]
+#                 nb_items = problem[1]
+#                 initialState = problem[5]
+#                 value_var_solutions = dp_ssp(profits, values, transitions, states, final_states, nb_states, nb_values, nb_items, initialState, verbose=False)
+#                 values_var_solutions.append(value_var_solutions)
 
-        # Define the linear layers for the graph embedding
-        self.linear_graph1 = nn.Linear(n_hidden[3], n_hidden[4])
-        self.linear_graph2 = nn.Linear(n_hidden[4], n_hidden[5])
+#                 for idx_var in range(problem[1]):
+#                     if idx_constraint == 0:
+#                         bound +=  problem[6 + problem[4] + idx_var * problem[2] + value_var_solutions[idx_var]]
+#                         for j in range(1, problem[0]):
+#                             bound += u[j * problem[1] * problem[2] + value_var_solutions[idx_var] + idx_var * problem[2]]
+#                     else:
+#                         bound -= u[idx_constraint * problem[1] * problem[2] + value_var_solutions[idx_var] + idx_var * problem[2]]
+        
+#             bounds_learning_grad_sublist.append(bound.to('cpu').detach().item())
 
-        # Define the dropout laye£r
-        self.dropout = nn.Dropout(dropout)
+#             for i in range(1, problem[0]):
+#                 for j in range(problem[1]):
+#                     u[i * problem[1] * problem[2] + j * problem[2] + values_var_solutions[i][j]] += 0.1
+#                     u[i * problem[1] * problem[2] + j * problem[2] + values_var_solutions[0][j]] -= 0.1
 
-    def forward(self, G, edge_index, edge_attribute):
-        # Perform graph convolution and activation function
-        #print(G)
-        G = self.linear_embedding(G)
-        G = F.relu(G)
-        G = self.linear_embedding2(G)
-        G = F.relu(G)
-        G = self.linear_embedding3(G)
-        G = F.relu(G)
 
-        G = self.conv1(G, edge_index, edge_attribute)
-        G = F.relu(G)
-        G = self.conv2(G, edge_index, edge_attribute)
-        G = F.relu(G)
-
-        G = self.linear_graph1(G)
-        G = F.relu(G)
-        G = self.linear_graph2(G)
-
-        return (G)
-
-class GNNsup2(torch.nn.Module):
-    def __init__(self, n_features_nodes, n_classes, n_hidden, dropout, device):
-        super(GNNsup2, self).__init__()
-
-        self.device = device
-
-       # Define the linear layers for the final prediction
-        self.linear = nn.Linear( 2 * n_hidden[5], n_hidden[6])
-        self.linear2 = nn.Linear(n_hidden[6], n_hidden[7])
-        self.linear3 = nn.Linear(n_hidden[7], n_classes)
-
-        # Define the dropout laye£r
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, u):
-
-        # Perform linear transformation for final prediction
-        u = u.squeeze(-1)
-        u = self.linear(u)
-        u = F.relu(u)
-        u = self.linear2(u)
-        u = F.relu(u)
-        u = self.linear3(u)
-        return(u)
     
-def copy_weights(model_old,model_new):
-    for name, param in model_old.named_children():
-        if hasattr(model_new, name):
-            getattr(model_new, name).load_state_dict(param.state_dict())
+#     bounds_learning_grad.append(bounds_learning_grad_sublist)
+        
 
-torch.save(model.state_dict(), "GNN-SSP-10-20.pt")
+bounds_grad = []
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-model1 = GNNsup1(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
-model2 = GNNsup2(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
+for data in graphs_training:
+    problem = data.graph_problem
+    u = torch.zeros(problem[0] * problem[1] * problem[1]).to(device)
+    bounds_grad_sublist = []
+    for k in range(1000):
+            compteur = 0
+            values_var_solutions = []
+            bound = 0
+            for idx_constraint in range(problem[0]):
+                profits = [0 for i in range(problem[1] * problem[2])]
+                for idx in range(0, problem[1] * problem[2]):
+                    if idx_constraint == 0:
+                        profits[idx] = problem[6 + problem[4] + idx]
+                        for j in range(1, problem[0]):
+                            profits[idx] += u[j * problem[1] * problem[2] + idx]
+                    else:
+                        profits[idx] =  - u[idx_constraint * problem[1] * problem[2] + idx]
+                values = problem[6 + problem[4] + problem[1] * problem[2] : 6 + problem[4] + 2 * problem[1] * problem[2]]
+                transitions = problem[6 + problem[4] + 2 * problem[1] * problem[2] + idx_constraint * problem[2] * problem[3]: 6 + problem[4] + 2 * problem[1] * problem[2] + (idx_constraint + 1) * problem[2] * problem[3]]
+                states = [i for i in range(problem[3])]
+                final_states = problem[6: 6 + problem[4]]
+                nb_states = problem[3]
+                nb_values = problem[2]
+                nb_items = problem[1]
+                initialState = problem[5]
+                value_var_solutions = dp_ssp(profits, values, transitions, states, final_states, nb_states, nb_values, nb_items, initialState, verbose=False)
+                values_var_solutions.append(value_var_solutions)
 
-copy_weights(model,model1)
-copy_weights(model,model2)
+                for idx_var in range(problem[1]):
+                    if idx_constraint == 0:
+                        bound +=  problem[6 + problem[4] + idx_var * problem[2] + value_var_solutions[idx_var]]
+                        for j in range(1, problem[0]):
+                            bound += u[j * problem[1] * problem[2] + value_var_solutions[idx_var] + idx_var * problem[2]]
+                    else:
+                        bound -= u[idx_constraint * problem[1] * problem[2] + value_var_solutions[idx_var] + idx_var * problem[2]]
+            print(bound)
+        
+            bounds_grad_sublist.append(bound.to('cpu').detach().item())
 
-traced_script_module = torch.jit.trace(model2, (torch.ones(128)).to(device))
-traced_script_module.save("../../../../trained_models/SSP/model_prediction-GPU10-20.pt")
-traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_attr.to(device)))
-traced_script_module.save("../../../../trained_models/SSP/model_graph_representation-GPU10-20.pt")
+            for i in range(1, problem[0]):
+                for j in range(problem[1]):
+                    u[i * problem[1] * problem[2] + j * problem[2] + values_var_solutions[i][j]] += 0.5/np.sqrt(np.sqrt(k + 1))
+                    u[i * problem[1] * problem[2] + j * problem[2] + values_var_solutions[0][j]] -= 0.5/np.sqrt(np.sqrt(k + 1))
 
-#CPU
 
-device = torch.device('cpu')
-model1 = GNNsup1(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
-model2 = GNNsup2(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
+    
+    bounds_grad.append(bounds_grad_sublist)
 
-copy_weights(model,model1)
-copy_weights(model,model2)
+# bound_learning = 0
+# for bound in bounds_learning:
+#     bound_learning += bound
+# bound_learning /= len(bounds_learning)
 
-traced_script_module = torch.jit.trace(model2, (torch.ones(128)).to(device))
-traced_script_module.save("../../../../trained_models/SSP/model_prediction-CPU10-20.pt")
-traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_attr.to(device)))
-traced_script_module.save("../../../../trained_models/SSP/model_graph_representation-CPU10-20.pt")
+# bound_learning_grad = []
+# for bound in bounds_learning_grad:
+#     bound_learning_grad.append(np.mean(bound))
 
+bound_grad = []
+for bound in bounds_grad:
+    bound_grad.append(np.mean(bound))
+
+# # save these data to a file
+# with open("bounds_learning-ssp-10-20.txt", "w") as file:
+#     file.write(json.dumps(bounds_learning))
+
+# with open("bounds_learning_grad-ssp-10-20.txt", "w") as file:
+#     file.write(json.dumps(bounds_learning_grad))
+
+with open("bounds_grad-ssp-10-20.txt", "w") as file:
+    file.write(json.dumps(bounds_grad))
 
 wandb.finish()
