@@ -1403,8 +1403,9 @@ list_of_problems = [
 
 ]
 
-for i, pb in enumerate(problems):
-    with open("test/weish/" + list_of_problems[i] + ".txt", "w") as f:
+
+with open("test/weish/knapsacks-data.txt", "w") as f:
+    for i, pb in enumerate(problems):
         n = pb[1]
         m = pb[0]
         vectors = []
@@ -1434,7 +1435,7 @@ for i, pb in enumerate(problems):
             f.write(str(problem[i]) + ",")
         f.write(str(problem[-1]))
         f.write("\n")
-        f.close()
+f.close()
 
 with open("train/weish/knapsacks-data.txt",'w') as f:
     data_split = "test/weish"
@@ -1443,7 +1444,7 @@ with open("train/weish/knapsacks-data.txt",'w') as f:
           with open(data_split+ '/' + file_path, 'r') as file:
                 lines = file.readlines()
                 probleme = lines[0].split(sep = ',')
-                for k in range(30):
+                for k in range(10):
                     problem = []
                     n = int(probleme[1])
                     m = int(probleme[0])

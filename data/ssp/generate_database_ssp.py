@@ -27,7 +27,8 @@ def generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, 
             transition[j][i] = -1
 
     # generate the profits
-    profits = [(sorted(np.random.randint(1, 100, size=(nb_values)))) for j in range(nb_items)]
+    profits = [(list(np.random.randint(1, 100, size=(nb_values)))) for j in range(nb_items)]
+    profits_sorted = [sorted(profits[j]) for j in range(nb_items)]
 
     problem = []
     problem.append(nb_constraints)
@@ -38,13 +39,13 @@ def generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, 
     problem.append(initial_states)
     problem += final_states
     for j in range(nb_items):
-        problem += profits[j]
+        problem += profits_sorted[j]
     for i in range(nb_items):
         problem += values
     for j in range(nb_constraints):
         problem += transition[j]
     
-    return problem 
+    return problem
 
 with open("train/ssp-data-trainset10-20.txt",'w') as f:
 
@@ -55,31 +56,12 @@ with open("train/ssp-data-trainset10-20.txt",'w') as f:
     initial_states = 0
     prop_final_state = 0.5
     prop_transition = 0.3
-    for i in range (0, 10):
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+    for i in range (0, 200):
+        problem, problem_sorted =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
         line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
-        line += str(int(problem[-1]))
-        line += "\n"
-        f.write(line)
-
-with open("train/ssp-data-trainset10-80.txt",'w') as f:
-    
-    nb_constraints=2
-    nb_items = 50
-    nb_values = 10
-    nb_states = 80
-    initial_states = 0
-    prop_final_state = 0.5
-    prop_transition = 0.3
-    for i in range (0, 5):
-        tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
-        line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
-        line += str(int(problem[-1]))
+        for j in range(len(problem_sorted)-1):
+            line=line+str(int(problem_sorted[j]))+","
+        line += str(int(problem_sorted[-1]))
         line += "\n"
         f.write(line)
 
@@ -92,56 +74,22 @@ with open("train/ssp-data-trainset20-20.txt",'w') as f:
     initial_states = 0
     prop_final_state = 0.5
     prop_transition = 0.3
-    for i in range (0, 5):
-        tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+    for i in range (0, 200):
+        problem =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+
         line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
+        for j in range(len(problem)-1):
+            line=line+str(int(problem[j]))+","
         line += str(int(problem[-1]))
         line += "\n"
         f.write(line)
-
-with open("train/ssp-data-trainset20-80.txt",'w') as f:
-    
-    nb_constraints=2
-    nb_items = 50
-    nb_values = 20
-    nb_states = 80
-    initial_states = 0
-    prop_final_state = 0.5
-    prop_transition = 0.3
-    for i in range (0, 5):
-        tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
-        line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
+    line=""
+    for i in range(len(problem)-1):
+        line=line+str(int(problem[i]))+","
         line += str(int(problem[-1]))
-        line += "\n"
-        f.write(line)
+    f.write(line)
 
-
-with open("test/ssp-data-testset10-20.txt",'w') as f:
-    
-    nb_constraints=2
-    nb_items = 50
-    nb_values = 10
-    nb_states = 20
-    initial_states = 0
-    prop_final_state = 0.5
-    prop_transition = 0.3
-    for i in range (0, 5):
-        tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
-        line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
-        line += str(int(problem[-1]))
-        line += "\n"
-        f.write(line)
-
-with open("test/ssp-data-testset10-80.txt",'w') as f:
+with open("train/ssp-data-trainset10-80.txt",'w') as f:
     
     nb_constraints=2
     nb_items = 50
@@ -150,17 +98,40 @@ with open("test/ssp-data-testset10-80.txt",'w') as f:
     initial_states = 0
     prop_final_state = 0.5
     prop_transition = 0.3
-    for i in range (0, 5):
-        tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+    for i in range (0, 200):
+        problem =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
         line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
+        for j in range(len(problem)-1):
+            line=line+str(int(problem[j]))+","
         line += str(int(problem[-1]))
         line += "\n"
         f.write(line)
+    line=""
+    for i in range(len(problem_sorted)-1):
+        line=line+str(int(problem_sorted[i]))+","
+        line += str(int(problem_sorted[-1]))
+    f.write(line)
 
-with open("test/ssp-data-testset20-20.txt",'w') as f:
+
+with open("train/ssp-data-valset10-20.txt",'w') as f:
+
+    nb_constraints=2
+    nb_items = 50
+    nb_values = 10
+    nb_states = 20
+    initial_states = 0
+    prop_final_state = 0.5
+    prop_transition = 0.3
+    for i in range (0, 30):
+        problem, problem_sorted =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+        line=""
+        for j in range(len(problem_sorted)-1):
+            line=line+str(int(problem_sorted[j]))+","
+        line += str(int(problem_sorted[-1]))
+        line += "\n"
+        f.write(line)
+
+with open("train/ssp-data-valset20-20.txt",'w') as f:
     
     nb_constraints=2
     nb_items = 50
@@ -169,31 +140,96 @@ with open("test/ssp-data-testset20-20.txt",'w') as f:
     initial_states = 0
     prop_final_state = 0.5
     prop_transition = 0.3
-    for i in range (0, 5):
-        tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+    for i in range (0, 30):
+        problem =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+
         line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
+        for j in range(len(problem)-1):
+            line=line+str(int(problem[j]))+","
         line += str(int(problem[-1]))
         line += "\n"
         f.write(line)
+    line=""
+    for i in range(len(problem)-1):
+        line=line+str(int(problem[i]))+","
+        line += str(int(problem[-1]))
+    f.write(line)
 
-with open("test/ssp-data-testset20-80.txt",'w') as f:
+with open("train/ssp-data-valset10-80.txt",'w') as f:
     
     nb_constraints=2
     nb_items = 50
     nb_values = 10
-    nb_states = 20
+    nb_states = 80
     initial_states = 0
     prop_final_state = 0.5
     prop_transition = 0.3
-    for i in range (0, 5):
-        tightness=np.array([0.2 + 0.05 *j for j in range(nb_constraints)])
-        problem=generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+    for i in range (0, 30):
+        problem =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
         line=""
-        for i in range(len(problem)-1):
-            line=line+str(int(problem[i]))+","
+        for j in range(len(problem)-1):
+            line=line+str(int(problem[j]))+","
+        line += str(int(problem[-1]))
+        line += "\n"
+        f.write(line)
+    line=""
+    for i in range(len(problem_sorted)-1):
+        line=line+str(int(problem_sorted[i]))+","
+        line += str(int(problem_sorted[-1]))
+    f.write(line)
+
+
+
+for i in range (0, 50):
+    with open("test/ssp-data-testset10-20-" + str(i) +".txt",'w') as f:
+
+        nb_constraints=2
+        nb_items = 50
+        nb_values = 10
+        nb_states = 20
+        initial_states = 0
+        prop_final_state = 0.5
+        prop_transition = 0.3
+        problem =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+        line=""
+        for j in range(len(problem)-1):
+            line=line+str(int(problem[j]))+","
+        line += str(int(problem[-1]))
+        line += "\n"
+        f.write(line)
+
+for i in range (0, 50):
+    with open("test/ssp-data-testset20-20-" + str(i) + ".txt",'w') as f:
+    
+        nb_constraints=2
+        nb_items = 50
+        nb_values = 20
+        nb_states = 20
+        initial_states = 0
+        prop_final_state = 0.5
+        prop_transition = 0.3
+        problem =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+        line=""
+        for j in range(len(problem)-1):
+            line=line+str(int(problem[j]))+","
+        line += str(int(problem[-1]))
+        line += "\n"
+        f.write(line)
+
+for i in range (0, 50):
+    with open("test/ssp-data-testset10-80-" + str(i) + ".txt",'w') as f:
+    
+        nb_constraints=2
+        nb_items = 50
+        nb_values = 10
+        nb_states = 80
+        initial_states = 0
+        prop_final_state = 0.5
+        prop_transition = 0.3
+        problem =generate_ssp(nb_items,nb_constraints, initial_states, nb_states, nb_values, prop_final_state, prop_transition)
+        line=""
+        for j in range(len(problem)-1):
+            line=line+str(int(problem[j]))+","
         line += str(int(problem[-1]))
         line += "\n"
         f.write(line)
