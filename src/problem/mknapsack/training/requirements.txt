@@ -1,8 +1,9 @@
-pandas==2.1.0+computecanada
+pandas
 sklearn
-numpy==1.25.2+computecanada
+numpy
 tqdm
 torch
 torch_geometric
 numba
 matplotlib
+wandb

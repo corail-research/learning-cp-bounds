@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(solver)
 
-set(pybind11_DIR /home/darius/scratch/pybind11/pybind11/share/cmake/pybind11)
+set(pybind11_DIR /Users/dariusdabert/anaconda3/share/cmake/pybind11)
 find_package(pybind11 REQUIRED)  # or `add_subdirectory(pybind11)`
 
 SET(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_MODULE_PATH})
@@ -15,6 +15,7 @@ target_link_libraries(solver_mknapsack PRIVATE
     ${TORCH_LIBRARIES}
     pybind11::embed
     Gecode::Driver
+    Gecode::Gist
     Gecode::Minimodel
     Gecode::Int
     Gecode::Float

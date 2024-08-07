@@ -1,4 +1,4 @@
-set(GECODE_ROOT "/home/darius/scratch/gecode-release-6.2.0/")
+#set(GECODE_ROOT "/home/darius/scratch/gecode-release-6.2.0/")
 # - Try to find Gecode
 # Once done this will define
 #  GECODE_FOUND          - System has Gecode

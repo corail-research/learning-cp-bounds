@@ -1,4 +1,5 @@
 import argparse
+import json
 
 import pandas as pd
 import numpy as np
@@ -12,9 +13,9 @@ import torch.optim as optim
 
 from torch_geometric.data import DataLoader
 import torch_geometric.nn as gnn
-import torch_geometric
 
 from numba import cuda
+
 import wandb
 
 # Créer un analyseur d'arguments
@@ -27,7 +28,6 @@ parser.add_argument('size_instances', type=str, help='number of items of the ins
 args = parser.parse_args()
 
 size_instances = args.size_instances
-
 
 def load_dataset(file_path):
     """
@@ -43,7 +43,7 @@ def load_dataset(file_path):
         for line in file.readlines():
         # Create a new graph object
             try:
-                graph = torch_geometric.data.Data()
+                graph = gnn.data.Data()
                 # Converte the problem to a list of integers
                 probleme = line.split(sep = ',')
                 problem = []
@@ -82,7 +82,7 @@ def load_dataset(file_path):
 
                 graph_id = problem[0] * problem[1]
 
-                graph = torch_geometric.data.Data(x=torch.FloatTensor(X), edge_index=torch.LongTensor(edge_index).T,
+                graph = gnn.data.Data(x=torch.FloatTensor(X), edge_index=torch.LongTensor(edge_index).T,
                 edge_weight=torch.FloatTensor(edge_weights), edge_attr=torch.LongTensor(edge_attributes), opt = problem[-1],  fix_bound = problem[-2],  graph_id=graph_id, graph_problem=problem)
 
                 graphs.append(graph)
@@ -234,6 +234,7 @@ class GNN(torch.nn.Module):
         G = self.linear_embedding2(G)
         G = F.relu(G)
 
+
         G = self.conv1(G, edge_index, edge_weight)
         G = F.relu(G)
         G = self.conv2(G, edge_index, edge_weight)
@@ -288,144 +289,14 @@ class GNN(torch.nn.Module):
             bound += temp.squeeze(-1)
             bounds[idx_batch] = bound
             compteur += problem[0] * problem[1]
-        return bounds
-    
-def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_epochs, device="cpu"):
-    """
-  Function to train the model.
-
-  Args:
-  - model: The GNN model to be trained
-  - optimizer: The optimizer used for training
-  - criterion: The loss function
-  - scheduler: The learning rate scheduler
-  - train_loader: The data loader for the training set
-  - val_loader: The data loader for the validation set
-  - n_epochs: The number of epochs to train for
-  - device: The device to run the training on (default: "cpu")
-
-  Returns:
-  - train_loss: List of training losses for each epoch
-  - val_loss: List of validation losses for each epoch
-  - train_diff_ecart_opt: List of training relative differences between bound and optimal solutions for each epoch
-  - val_diff_ecart_opt: List of validation relative differences between bound and optimal solutions for each epoch
-    """
-
-  # Metrics for each epoch
-    train_loss = []
-    val_loss = []
-    train_diff_ecart_opt = []
-    val_diff_ecart_opt = []
-    
-    for epoch in tqdm(range(n_epochs)):
-        train_loss_sublist = []
-        train_diff_ecart_opt_sublist = []
-        for data in train_loader:
-            model.train()
-            optimizer.zero_grad()
-            tensor_problems = [torch.tensor(sublist) for sublist in data.graph_problem]
-            data.graph_problem = [tensor.to(device) for tensor in tensor_problems]
-            bound = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)
-            loss = criterion(bound)
-            loss.backward()
-            optimizer.step()
-            y = data.opt.to(device)
-            gobal_bound = data.fix_bound.to(device) + bound.to(device)
-            train_loss_sublist.append(torch.mean(gobal_bound).detach().item())
-            train_diff_ecart_opt_sublist.append((torch.mean(torch.div(gobal_bound - y, y))).detach().item())
-
-        train_loss.append(np.mean(train_loss_sublist))
-        train_diff_ecart_opt.append(np.mean(train_diff_ecart_opt_sublist))
-        
-        val_loss_sublist = []
-        val_diff_ecart_opt_sublist = []
-        for data in val_loader:
-            model.eval()
-            with torch.no_grad():
-                tensor_problems = [torch.tensor(sublist) for sublist in data.graph_problem]
-                data.graph_problem = [tensor.to(device) for tensor in tensor_problems]
-                bound = model(data.x.to(device), data.edge_index.to(device), data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)
-                loss = criterion(bound)
-                y = data.opt.to(device)
-                gobal_bound = data.fix_bound.to(device) + bound.to(device)
-                val_loss_sublist.append(torch.mean(gobal_bound).detach().item())
-                val_diff_ecart_opt_sublist.append((torch.mean(torch.div(gobal_bound - y, y))).detach().item())
-
-
-        val_loss.append(np.mean(val_loss_sublist))
-        val_diff_ecart_opt.append(np.mean(val_diff_ecart_opt_sublist))
-
-    #check if scheduler is none
-        if scheduler is not None:
-            scheduler.step(val_loss[-1])
-
-    #, val loss {val_loss[-1]}, , val diff {val_diff[-1]}
-        if epoch%1 ==0:
-            print(f"Epoch {epoch} : "
-      f"train loss {train_loss[-1]},  val loss {val_loss[-1]},\n "
-      f"train diff ecart opt {train_diff_ecart_opt[-1] * 100}%, "
-      f"val diff ecart opt {val_diff_ecart_opt[-1] * 100}%,\n"
-                  
-                 )
-            wandb.log({"train_loss": train_loss[-1], "val_loss": val_loss[-1], "train_diff_ecart_opt": train_diff_ecart_opt[-1], "val_diff_ecart_opt": val_diff_ecart_opt[-1]})
-
-
-    return train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt
-
-def plotter(train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt):
-    """
-  Function to plot the training and validation metrics.
-
-  Args:
-  - train_loss: List of training losses for each epoch
-  - val_loss: List of validation losses for each epoch
-  - train_acc: List of training accuracies for each epoch
-  - val_acc: List of validation accuracies for each epoch
-  - train_f1: List of training F1 scores for each epoch
-  - val_f1: List of validation F1 scores for each epoch
-    """
-
-    fig, axs = plt.subplots(1, 2, figsize=(20,5))
-    axs[0].plot(train_loss, label="Train Loss")
-    axs[0].plot(val_loss, label="Val Loss")
-    axs[0].axhline(y=3200, color='r', linestyle='-', label="Baseline")
-    axs[0].legend()
-
-    axs[1].plot(train_diff_ecart_opt, label="Train Diff Global Bound")
-    axs[1].plot(val_diff_ecart_opt, label="Val Diff Global Bound")
-    axs[1].legend()
-
-    plt.show()
-
-
-# start a new wandb run to track this script
-wandb.init(
-    # set the wandb project where this run will be logged
-    project="learning_bounds_mknapsack",
-
-    # track hyperparameters and run metadata
-    config={
-    "learning_rate": 0.001,
-    "architecture": "GNN-GatedGraphConv",
-    "layers" : "128, 16, 64, 64, 256, 128, 32, 32",
-    "dataset": "mknapsack-" + size_instances,
-    "epochs": 10
-    }
-)
-
+        return bounds, u
 
 ## Train the models
-graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/trainset-mknapsack" + size_instances + ".txt")
+graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/test/pissinger/knapsacks-data-testset" + size_instances +".txt")
 print("len(graphs_training)", len(graphs_training))
 
-graphs_val = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/valset-mknapsack" + size_instances + ".txt")
-print("len(graphs_val)", len(graphs_val))
-
 # Create train_set and val_set
-#train_data, val_data = train_test_split(graphs_training, test_size=0.2, random_state = 0)
-train_loader = DataLoader(graphs_training, batch_size=16, shuffle=False)
-
-val_loader = DataLoader(graphs_val, batch_size=16, shuffle=False)
+train_loader = DataLoader(graphs_training, batch_size=1, shuffle=False)
 
 torch.cuda.empty_cache()
 
@@ -436,114 +307,119 @@ def criterion(bounds):
 
 model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
 
+model.load_state_dict(torch.load("GNN-" + size_instances + ".pt"))
 
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.9, patience=20)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.9, patience=20)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 50, device)
+bounds_learning = []
 
-## Save the models
+for data in train_loader:
+    model.train()
+    optimizer.zero_grad()
+    tensor_problems = [torch.tensor(sublist) for sublist in data.graph_problem]
+    data.graph_problem = [tensor.to(device) for tensor in tensor_problems]
+    bound = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)[0]
+    y = data.opt.to(device)
+    gobal_bound = bound.to(device)
+    bounds_learning.append(torch.mean(gobal_bound).detach().item())
 
-class GNNsup1(torch.nn.Module):
-    def __init__(self, n_features_nodes, n_classes, n_hidden, dropout, device):
-        super(GNNsup1, self).__init__()
+bounds_learning_grad = []
 
-        self.device = device
+for data in train_loader:
+    problems = data.graph_problem
+    bounds_learning_grad_sublist = []
+    model.train()
+    optimizer.zero_grad()
+    tensor_problems = [torch.tensor(sublist) for sublist in data.graph_problem]
+    data.graph_problem = [tensor.to(device) for tensor in tensor_problems]
+    bound, u = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem)
+    y = data.opt.to(device)
+    for k in range(1000):
+        value_var_solutions = solve_knapsack_gpu_batch(data.graph_problem, u)
+        compteur = 0
+        for idx_batch, problem in enumerate(problems):
+                dx = [0] * (problem[1] * problem[0])
+                for i in range(problem[1]):
+                    for j in range( problem[0]):
+                        dx[i + j * problem[1] ] = (- value_var_solutions[compteur + i + j * problem[1]] + value_var_solutions[compteur + i])
+                dx = torch.Tensor(dx).to(device)
+                u_temp = torch.Tensor(u[compteur: compteur + problem[0] * problem[1]]).squeeze(-1)
+                bound = torch.dot(u_temp , dx)
+                temp = torch.zeros(1).to(device)
+                for i in range(problem[1]):
+                    temp += problem[2 + i] * value_var_solutions[compteur + i]
 
-       # Define the linear layers for the graph embedding
-        self.linear_embedding = nn.Linear(n_features_nodes, n_hidden[0])
-        self.linear_embedding2 = nn.Linear(n_hidden[0], n_hidden[1])
+                bound += temp.squeeze(-1)
+                global_bound = bound.to(device)
+                bounds_learning_grad_sublist.append(bound.to('cpu').detach().item())
+                compteur += problem[0] * problem[1]
+        compteur = 0
 
-        # Define the graph convolutional layers
-        self.conv1 = gnn.GatedGraphConv(  n_hidden[2], 2)
-        self.conv2 = gnn.GatedGraphConv( n_hidden[3], 2)
-
-        # Define the linear layers for the graph embedding
-        self.linear_graph1 = nn.Linear(n_hidden[3], n_hidden[4])
-        self.linear_graph2 = nn.Linear(n_hidden[4], n_hidden[5])
-
-        # Define the dropout laye£r
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, G, edge_index, edge_weight):
-        # Perform graph convolution and activation function
-        #print(G)
-        G = self.linear_embedding(G)
-        G = F.relu(G)
-        G = self.linear_embedding2(G)
-        G = F.relu(G)
-
-        G = self.conv1(G, edge_index, edge_weight)
-        G = F.relu(G)
-        G = self.conv2(G, edge_index, edge_weight)
-        G = F.relu(G)
-
-        G = self.linear_graph1(G)
-        G = F.relu(G)
-        G = self.linear_graph2(G)
-
-        return (G)
-
-class GNNsup2(torch.nn.Module):
-    def __init__(self, n_features_nodes, n_classes, n_hidden, dropout, device):
-        super(GNNsup2, self).__init__()
-
-        self.device = device
-
-       # Define the linear layers for the final prediction
-        self.linear = nn.Linear( 2 * n_hidden[5], n_hidden[6])
-        self.linear2 = nn.Linear(n_hidden[6], n_hidden[7])
-        self.linear3 = nn.Linear(n_hidden[7], n_classes)
-
-        # Define the dropout laye£r
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, u):
-
-        # Perform linear transformation for final prediction
-        u = u.squeeze(-1)
-        u = self.linear(u)
-        u = F.relu(u)
-        u = self.linear2(u)
-        u = F.relu(u)
-        u = self.linear3(u)
-        return(u)
+        for i in range(problems[0][0]):
+            for j in range(compteur, compteur + problems[0][1]):
+                u[j + i * problems[0][1]] -= 1 * ( - value_var_solutions[compteur + j + i * problems[0][1]] + value_var_solutions[compteur + j])
     
-def copy_weights(model_old,model_new):
-    for name, param in model_old.named_children():
-        if hasattr(model_new, name):
-            getattr(model_new, name).load_state_dict(param.state_dict())
+    bounds_learning_grad.append(bounds_learning_grad_sublist)
+        
 
-torch.save(model.state_dict(), "GNN-" + size_instances +".pt")
+bounds_grad = []
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
-model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
+for data in train_loader:
+    problems = data.graph_problem
+    tensor_problems = [torch.tensor(sublist) for sublist in data.graph_problem]
+    data.graph_problem = [tensor.to(device) for tensor in tensor_problems]
+    u = torch.zeros(problems[0][0] * problems[0][1]).to(device)
+    bounds_grad_sublist = []
+    for k in range(1000):
+        value_var_solutions = solve_knapsack_gpu_batch(data.graph_problem, u)
+        compteur = 0
+        for idx_batch, problem in enumerate(problems):
+                dx = [0] * (problem[1] * problem[0])
+                for i in range(problem[1]):
+                    for j in range( problem[0]):
+                        dx[i + j * problem[1] ] = (- value_var_solutions[compteur + i + j * problem[1]] + value_var_solutions[compteur + i])
+                dx = torch.Tensor(dx).to(device)
+                u_temp = torch.Tensor(u[compteur: compteur + problem[0] * problem[1]]).squeeze(-1)
+                bound = torch.dot(u_temp , dx)
+                temp = torch.zeros(1).to(device)
+                for i in range(problem[1]):
+                    temp += problem[2 + i] * value_var_solutions[compteur + i]
 
-copy_weights(model,model1)
-copy_weights(model,model2)
+                bound += temp.squeeze(-1)
+                global_bound = bound.to(device)
+                bounds_grad_sublist.append(bound.to('cpu').detach().item())
+                compteur += problem[0] * problem[1]
+        compteur = 0
 
-traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-GPU" + size_instances +".pt")
-traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-GPU" + size_instances +".pt")
+        for i in range(problems[0][0]):
+            for j in range(compteur, compteur +  problems[0][1]):
+                u[j + i * problems[0][1] ] -= 1 * (- value_var_solutions[compteur + j + i * problems[0][1]] + value_var_solutions[compteur + j])
 
-#CPU
+    bounds_grad.append(bounds_grad_sublist)
 
-device = torch.device('cpu')
-model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
-model2 = GNNsup2(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
+bound_learning = 0
+for bound in bounds_learning:
+    bound_learning += bound
+bound_learning /= len(bounds_learning)
 
-copy_weights(model,model1)
-copy_weights(model,model2)
+bound_learning_grad = []
+for bound in bounds_learning_grad:
+    bound_learning_grad.append(np.mean(bound))
 
-traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-CPU" + size_instances +".pt")
-traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-CPU" + size_instances +".pt")
+bound_grad = []
+for bound in bounds_grad:
+    bound_grad.append(np.mean(bound))
 
+# save these data to a file
+with open("bounds_learning-" + size_instances +".txt", "w") as file:
+    file.write(json.dumps(bounds_learning))
 
-wandb.finish()
+with open("bounds_learning_grad-" + size_instances +".txt", "w") as file:
+    file.write(json.dumps(bounds_learning_grad))
+
+with open("bounds_grad-" + size_instances +".txt", "w") as file:
+    file.write(json.dumps(bounds_grad))

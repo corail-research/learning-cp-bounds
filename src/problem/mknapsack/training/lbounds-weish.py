@@ -17,17 +17,6 @@ import torch_geometric
 from numba import cuda
 import wandb
 
-# Créer un analyseur d'arguments
-parser = argparse.ArgumentParser(description="Get the size of the problem")
-
-# Ajouter des arguments
-parser.add_argument('size_instances', type=str, help='number of items of the instances')
-
-# Analyser les arguments
-args = parser.parse_args()
-
-size_instances = args.size_instances
-
 
 def load_dataset(file_path):
     """
@@ -401,31 +390,32 @@ def plotter(train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt):
 # start a new wandb run to track this script
 wandb.init(
     # set the wandb project where this run will be logged
-    project="learning_bounds_mknapsack",
+    project="learning_bounds_mknapsack-weish",
 
     # track hyperparameters and run metadata
     config={
     "learning_rate": 0.001,
     "architecture": "GNN-GatedGraphConv",
     "layers" : "128, 16, 64, 64, 256, 128, 32, 32",
-    "dataset": "mknapsack-" + size_instances,
+    "dataset": "mknapsack-weish",
     "epochs": 10
     }
 )
 
 
 ## Train the models
-graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/trainset-mknapsack" + size_instances + ".txt")
+graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/weish/trainset-mknapsack.txt")
 print("len(graphs_training)", len(graphs_training))
 
-graphs_val = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/valset-mknapsack" + size_instances + ".txt")
-print("len(graphs_val)", len(graphs_val))
+train_set, val_set = torch.utils.data.random_split(graphs_training, [int(0.8 * len(graphs_training)), len(graphs_training) - int(0.8 * len(graphs_training))])
+ 
+# graphs_val = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/weish/valset-mknapsack.txt")
+# print("len(graphs_val)", len(graphs_val))
 
 # Create train_set and val_set
-#train_data, val_data = train_test_split(graphs_training, test_size=0.2, random_state = 0)
-train_loader = DataLoader(graphs_training, batch_size=16, shuffle=False)
+train_loader = DataLoader(train_set, batch_size=16, shuffle=False)
 
-val_loader = DataLoader(graphs_val, batch_size=16, shuffle=False)
+val_loader = DataLoader(val_set, batch_size=16, shuffle=False)
 
 torch.cuda.empty_cache()
 
@@ -436,6 +426,7 @@ def criterion(bounds):
 
 model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
 
+model.load_state_dict(torch.load("GNN-100.pt"))
 
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -443,7 +434,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 50, device)
+train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 10, device)
 
 ## Save the models
 
@@ -517,7 +508,7 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-torch.save(model.state_dict(), "GNN-" + size_instances +".pt")
+torch.save(model.state_dict(), "GNN-weish.pt")
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
@@ -527,9 +518,9 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-GPU" + size_instances +".pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-weish-GPU.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-GPU" + size_instances +".pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-weish-GPU.pt")
 
 #CPU
 
@@ -541,9 +532,9 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(256)).to(device))
-traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-CPU" + size_instances +".pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_prediction-weish-CPU.pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_weight.to(device)))
-traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-CPU" + size_instances +".pt")
+traced_script_module.save("../../../../trained_models/mknapsack/model_graph_representation-weish-CPU.pt")
 
 
 wandb.finish()
