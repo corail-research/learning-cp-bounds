@@ -1241,7 +1241,7 @@ int main(int argc, char* argv[]) {
         if (pissinger) {
             for (int index_size = start_size; index_size < number_of_sizes; index_size++) {
         
-                std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/pissinger-unordered/knapsacks-data-trainset" + sizes[index_size] + ".txt");
+                std::ifstream inputFilea("../../../../data/mknapsack/train/pissinger-unordered/knapsacks-data-trainset" + sizes[index_size] + ".txt");
                 bool activate_bound_computation = true;
                 bool activate_learning_prediction = false;
                 bool activate_learning_and_grad = false;
@@ -1255,7 +1255,7 @@ int main(int argc, char* argv[]) {
 
                 while (std::getline(inputFilea, line)) {
 
-                    std::ofstream outputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/pissinger-unordered/trainset-mk"+ sizes[index_size]+"-subnodes" + std::to_string(j) +  ".txt");
+                    std::ofstream outputFilea("../../../../data/mknapsack/train/pissinger-unordered/trainset-mk"+ sizes[index_size]+"-subnodes" + std::to_string(j) +  ".txt");
 
 
                     set_nodes.clear();
@@ -1281,7 +1281,7 @@ int main(int argc, char* argv[]) {
 
         }
         else {
-            std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/weish/knapsacks-data.txt");
+            std::ifstream inputFilea("../../../../data/mknapsack/train/weish/knapsacks-data.txt");
             bool activate_bound_computation = true;
             bool activate_learning_prediction = false;
             bool activate_learning_and_grad = false;
@@ -1295,7 +1295,7 @@ int main(int argc, char* argv[]) {
             while (std::getline(inputFilea, line)) {
 
                 try{
-                    std::ofstream outputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/mknapsack/train/weish/weish-train-mk-subnodes" + std::to_string(j) +  ".txt");
+                    std::ofstream outputFilea("../../../../data/mknapsack/train/weish/weish-train-mk-subnodes" + std::to_string(j) +  ".txt");
 
                     set_nodes.clear();
                     std::vector<int> problem;
@@ -1333,22 +1333,22 @@ int main(int argc, char* argv[]) {
                         if (use_gpu) {
                             // Deserialize the ScriptModule from a file using torch::jit::load().
                             if (activate_init_learning[index_model]){
-                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-GPU" + sizes[index_size] + ".pt");
-                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-GPU"+ sizes[index_size]+ ".pt");
+                                module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-GPU" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-GPU"+ sizes[index_size]+ ".pt");
                             }
                             else{
-                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-GPU" + sizes[index_size] + ".pt");
-                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-GPU"+ sizes[index_size]+ ".pt");
+                                module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-GPU" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-GPU"+ sizes[index_size]+ ".pt");
                             }
                         }
                         else {
                             if (activate_init_learning[index_model]){
-                                module_1 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU-root-" + sizes[index_size] + ".pt");
-                                module_2 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/mknapsack/model_prediction-CPU-root-"+ sizes[index_size]+ ".pt");
+                                module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-CPU-root-" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-CPU-root-"+ sizes[index_size]+ ".pt");
                             } 
                             else{
-                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU-root-" + sizes[index_size] + ".pt");
-                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-CPU-root-"+ sizes[index_size]+ ".pt");
+                                module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-CPU-root-" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-CPU-root-"+ sizes[index_size]+ ".pt");
                             }                   
                         }
                      }
@@ -1358,7 +1358,7 @@ int main(int argc, char* argv[]) {
                     }
 
                     for (int i = 0; i < 1; i++) {
-                        std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/test/pissinger/knapsacks-data-testset" + sizes[index_size] + + "-" + n_file + ".txt");
+                        std::ifstream inputFilea("../../../../data/mknapsack/test/pissinger/knapsacks-data-testset" + sizes[index_size] + + "-" + n_file + ".txt");
                         std::string line;
                         std::vector<int> problem;
                         std::vector<int> numbers;
@@ -1396,22 +1396,22 @@ int main(int argc, char* argv[]) {
                     if (use_gpu) {
                         // Deserialize the ScriptModule from a file using torch::jit::load().
                         if (activate_init_learning[index_model]){
-                            module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-weish-GPU.pt");
-                            module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-weish-GPU.pt");
+                            module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-weish-GPU.pt");
+                            module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-weish-GPU.pt");
                         }
                         else{
-                            module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-weish-GPU.pt");
-                            module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-weish-GPU.pt");
+                            module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-weish-GPU.pt");
+                            module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-weish-GPU.pt");
                         }
                     }
                     else {
                         if (activate_init_learning[index_model]){
-                            module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-weish-CPU.pt");
-                            module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-weish-CPU.pt");
+                            module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-weish-CPU.pt");
+                            module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-weish-CPU.pt");
                         }
                         else{
-                            module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-weish-CPU.pt");
-                            module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-weish-CPU.pt");
+                            module_1 = torch::jit::load("../../../../trained_models/mknapsack/model_graph_representation-weish-CPU.pt");
+                            module_2 = torch::jit::load("../../../../trained_models/mknapsack/model_prediction-weish-CPU.pt");
                         }                   
                     }
                 }
@@ -1421,7 +1421,7 @@ int main(int argc, char* argv[]) {
                }
 
                 for (int i = 0; i < 1; i++) {
-                    std::ifstream inputFilea("/home/darius/scratch/learning-bounds/data/mknapsack/test/weish/knapsacks-data.txt");
+                    std::ifstream inputFilea("../../../../data/mknapsack/test/weish/knapsacks-data.txt");
                     std::string line;
                     std::vector<int> problem;
                     std::vector<int> numbers;
