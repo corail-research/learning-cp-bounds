@@ -415,10 +415,10 @@ wandb.init(
 
 
 ## Train the models
-graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/trainset-mknapsack" + size_instances + ".txt")
+graphs_training = load_dataset("../../../../data/mknapsack/train/pissinger/trainset-mknapsack" + size_instances + ".txt")
 print("len(graphs_training)", len(graphs_training))
 
-graphs_val = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/pissinger/valset-mknapsack" + size_instances + ".txt")
+graphs_val = load_dataset("../../../../data/mknapsack/train/pissinger/valset-mknapsack" + size_instances + ".txt")
 print("len(graphs_val)", len(graphs_val))
 
 # Create train_set and val_set
@@ -517,7 +517,7 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-torch.save(model.state_dict(), "GNN-" + size_instances +".pt")
+torch.save(model.state_dict(), "../../../../trained_models/mknapsack/GNN-" + size_instances +".pt")
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
