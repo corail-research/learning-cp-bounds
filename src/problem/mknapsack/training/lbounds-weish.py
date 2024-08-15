@@ -348,7 +348,6 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
         if scheduler is not None:
             scheduler.step(val_loss[-1])
 
-    #, val loss {val_loss[-1]}, , val diff {val_diff[-1]}
         if epoch%1 ==0:
             print(f"Epoch {epoch} : "
       f"train loss {train_loss[-1]},  val loss {val_loss[-1]},\n "
@@ -404,13 +403,10 @@ wandb.init(
 
 
 ## Train the models
-graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/weish/trainset-mknapsack.txt")
+graphs_training = load_dataset("../../../../data/mknapsack/train/weish/trainset-mknapsack.txt")
 print("len(graphs_training)", len(graphs_training))
 
 train_set, val_set = torch.utils.data.random_split(graphs_training, [int(0.8 * len(graphs_training)), len(graphs_training) - int(0.8 * len(graphs_training))])
- 
-# graphs_val = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/train/weish/valset-mknapsack.txt")
-# print("len(graphs_val)", len(graphs_val))
 
 # Create train_set and val_set
 train_loader = DataLoader(train_set, batch_size=16, shuffle=False)
@@ -426,7 +422,7 @@ def criterion(bounds):
 
 model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
 
-model.load_state_dict(torch.load("GNN-100.pt"))
+model.load_state_dict(torch.load("../../../../trained_models/mknapsack/GNN-100.pt"))
 
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -508,7 +504,7 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-torch.save(model.state_dict(), "GNN-weish.pt")
+torch.save(model.state_dict(), "../../../../trained_models/mknapsack/GNN-weish.pt")
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model1 = GNNsup1(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
