@@ -1669,75 +1669,6 @@ public:
 };
 
 
-// // Function to execute task in a separate process
-// bool executeWithTimeout(std::function<void()> func, std::chrono::minutes timeout) {
-//     pid_t pid = fork();
-
-//     if (pid == -1) {
-//         std::cerr << "Failed to fork process" << std::endl;
-//         return false;
-//     }
-
-//     if (pid == 0) {
-//         // Child process
-//         func();
-//         exit(0);
-//     } 
-//     else {
-//         // Parent process
-//         auto start = std::chrono::steady_clock::now();
-//         while (true) {
-//             int status;
-//             pid_t result = waitpid(pid, &status, WNOHANG);
-
-//             if (result == 0) {
-//                 // Child still running
-//                 auto now = std::chrono::steady_clock::now();
-//                 if (std::chrono::duration_cast<std::chrono::minutes>(now - start) >= timeout) {
-//                     // Timeout reached, kill the child process
-//                     kill(pid, SIGKILL);
-//                     std::cout << "Execution time exceeded " << timeout.count() << " minutes" << std::endl;
-//                     return false;
-//                 }
-//                 std::this_thread::sleep_for(std::chrono::seconds(1));
-//             } 
-//             else if (result == pid) {
-//                 // Child exited
-//                 if (WIFEXITED(status)) {
-//                     return WEXITSTATUS(status) == 0;
-//                 } 
-//                 else {
-//                     return false;
-//                 }
-//             } 
-//             else {
-//                 std::cerr << "Error waiting for child process" << std::endl;
-//                 return false;
-//             }
-//         }
-//     }
-// }
-
-// Function to execute task in a separate thread
-bool executeWithTimeout(std::function<void()> func, std::chrono::minutes timeout) {
-    // Start the task in a separate thread
-    auto future = std::async(std::launch::async, func);
-
-    // Wait for the task to complete or timeout
-    if (future.wait_for(timeout) == std::future_status::timeout) {
-        std::cout << "Execution time exceeded " << timeout.count() << " minutes" << std::endl;
-        return false;
-    }
-
-    try {
-        future.get(); // Retrieve any exception thrown in the task
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in task: " << e.what() << std::endl;
-        return false;
-    }
-}
-
 int main(int argc, char* argv[]) {
 
     std::string n_size = argv[1];
@@ -1814,18 +1745,6 @@ int main(int argc, char* argv[]) {
                     opt.parse(argc, argv);
                     IntMaximizeScript::run<SSP, BAB, OptionsSSP>(opt);
 
-                // auto task = [&]() {
-                //     OptionsSSP opt(activate_bound_computation, activate_init_learning, activate_learning_prediction, activate_learning_and_grad, activate_heuristic, use_gpu, K, learning_rate, init_value_multipliers, &outputFilea, problem, true);
-                //     opt.instance();
-                //     opt.solutions(0);
-                //     opt.parse(argc, argv);
-                //     IntMaximizeScript::run<SSP, BAB, OptionsSSP>(opt);
-                // };
-
-                // std::chrono::minutes timeout(10);
-                // if (!executeWithTimeout(task, timeout)) {
-                //     std::cout << "Execution time exceeded 10 min for problem " << j << std::endl;
-                // }
                 outputFilea.close();
                 j++;
             }
@@ -1834,22 +1753,42 @@ int main(int argc, char* argv[]) {
     }
     else {
         for (int index_size = start_size; index_size < number_of_sizes; index_size++) {
-            // try {
-            //   // Deserialize the ScriptModule from a file using torch::jit::load().
-            //       module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_graph_representation-CPU" + sizes[index_size] + ".pt");
-            //       module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_prediction-CPU"+ sizes[index_size]+ ".pt");
-            // }
-
-            // catch (const c10::Error& e) {
-            //     std::cerr << "error with loading the models \n";
-            //     return -1;
-            // }
             for (int index_model = start_model; index_model < number_of_models; index_model++ ){
-                std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/test/ssp-data-testset"+ sizes[index_size] + ".txt");
+                try {
+                        if (use_gpu) {
+                            // Deserialize the ScriptModule from a file using torch::jit::load().
+                            if (activate_init_learning[index_model]){
+                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_graph_representation-GPU" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_prediction-GPU"+ sizes[index_size]+ ".pt");
+                            }
+                            else{
+                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_graph_representation-GPU" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_prediction-GPU"+ sizes[index_size]+ ".pt");
+                            }
+                        }
+                        else {
+                            if (activate_init_learning[index_model]){
+                                module_1 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/SSP/model_graph_representation-CPU" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/SSP/model_prediction-CPU"+ sizes[index_size]+ ".pt");
+                            } 
+                            else{
+                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_graph_representation-CPU" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/SSP/model_prediction-CPU"+ sizes[index_size]+ ".pt");
+                            }                   
+                        }
+                     }
+                    catch (const c10::Error& e) {
+                        std::cerr << "error with loading the models \n";
+                        // return -1;
+                    }
+                std::ifstream inputFilea("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/data/ssp/train/ssp-data-trainset"+ sizes[index_size] + ".txt");
                 std::string line;
                 std::vector<int> problem;
                 std::vector<int> numbers;
                 int j =1;
+                for (int l = 0;  l < id_file; l++) {
+                    std::getline(inputFilea, line);
+                }
 
                 while (std::getline(inputFilea, line)) {
                     compteur_iterations = 0;
@@ -1861,24 +1800,11 @@ int main(int argc, char* argv[]) {
                     }
                     std::cout<<""<<std::endl;
 
-                    // OptionsSSP opt=OptionsSSP(activate_bound_computation[index_model], activate_init_learning[index_model], activate_learning_prediction[index_model], activate_learning_and_grad[index_model], activate_heuristic[index_model], use_gpu, K, learning_rate, init_value_multipliers, NULL , problem, false);
-                    // opt.instance();
-                    // opt.solutions(0);
-                    // opt.parse(argc, argv);
-                    // IntMaximizeScript::run<SSP, BAB, OptionsSSP>(opt);
-
-                    auto task = [&]() {
                     OptionsSSP opt=OptionsSSP(activate_bound_computation[index_model], activate_init_learning[index_model], activate_learning_prediction[index_model], activate_learning_and_grad[index_model], activate_heuristic[index_model], use_gpu, K, learning_rate, init_value_multipliers, NULL , problem, false);
                     opt.instance();
                     opt.solutions(0);
                     opt.parse(argc, argv);
                     IntMaximizeScript::run<SSP, BAB, OptionsSSP>(opt);
-                };
-
-                std::chrono::minutes timeout(120);
-                if (!executeWithTimeout(task, timeout)) {
-                    std::cout << "Execution time exceeded 10 min for problem " << j << std::endl;
-                }
 
                 }
                 j++;
