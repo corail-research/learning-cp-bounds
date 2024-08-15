@@ -1,3 +1,5 @@
+import argparse
+
 import json
 from pathlib import Path
 import pandas as pd
@@ -26,6 +28,17 @@ import torch.optim as optim
 import wandb
 
 from numba import cuda
+
+# Créer un analyseur d'arguments
+parser = argparse.ArgumentParser(description="Get the size of the problem")
+
+# Ajouter des arguments
+parser.add_argument('size_instances', type=str, help='number of items of the instances')
+
+# Analyser les arguments
+args = parser.parse_args()
+
+size_instances = args.size_instances
 
 class Node:
     def __init__(self, index, state):
@@ -101,6 +114,8 @@ def load_dataset(file_path):
         for line in file.readlines():
             index += 1
             print(index)
+            if index > 300:
+                break
             try:
                 graph = torch_geometric.data.Data()
                 probleme = line.split(sep=',')
@@ -217,159 +232,6 @@ def load_dataset(file_path):
 
     return graphs
 
-# def load_dataset(file_path):
-#     """
-#     Function to load the dataset from the text files
-#     :param data_split: Path to the folder containing the text
-#     :return: List of graphs
-#     """
-
-#     graphs = []
-
-#     def bfs_paths(start_node, goal_nodes, adjacency_list):
-#         """Return paths from start_node to any of the goal_nodes."""
-#         queue = deque([(start_node, [start_node])])
-#         paths = []
-#         visited = set()
-#         while queue:
-#             node, path = queue.popleft()
-        
-#             if node in goal_nodes:
-#                 paths.append(path)
-#                 continue
-            
-#             for next_node in adjacency_list[node]:
-#                 if next_node not in visited:
-#                     visited.add(next_node)
-#                     queue.append((next_node, path + [next_node]))
-                
-    
-#         return paths
-
-
-#     with open(file_path, 'r') as file:
-#         index = 0
-#         for line in file.readlines():
-#             index += 1
-#             if index > 32:
-#                 break
-#             print(index)
-#             try:
-#                 graph = torch_geometric.data.Data()
-#                 probleme = line.split(sep=',')
-#                 problem = [int(probleme[i]) for i in range(len(probleme) - 1)]
-#                 problem.append(int(float(probleme[len(probleme) - 1].strip('\n'))))
-                
-#                 n = int(problem[1])  # Number of variables
-#                 m = int(problem[0])  # Number of constraints
-#                 v = int(problem[2])  # Number of values for each variable
-#                 s = int(problem[3])  # Number of states
-#                 F = int(problem[4])  # Number of final states
-                
-#                 X = []  # Nodes of the problem graph
-#                 edge_index = []  # Edges of the problem graph
-#                 edge_weights = []  # Weights of the edges of the problem graph
-#                 edge_attributes = []
-
-#                 one_hot_encoding = torch.nn.functional.one_hot(torch.tensor([i for i in range(s + 1)]), num_classes=s + 1)
-
-#                 for j in range(m):
-#                     for i in range(n):
-#                         for k in range(v):
-#                             X.append([problem[6 + F + i * v + k], j, i, k])
-
-#                 all_adjLists = []
-
-#                 for l in range(m):
-#                     global_edges = defaultdict(list)
-#                     layers = [{} for _ in range(n + 1)]
-#                     adjList = {}
-
-#                     layers[0][0] = Node(0, 0)
-
-#                     for j in range(1, n):
-#                         for key, prevNode in layers[j - 1].items():
-#                             for a in range(v):
-#                                 if problem[6 + F + n * v + (j - 1) * v + a] != 0:
-#                                     if problem[6 + F + 2 * n * v + l * v * s + prevNode.state * v + a] != -1:
-#                                         newNode = Node(j, problem[6 + F + 2 * n * v + l * v * s + prevNode.state * v + a])
-#                                         layers[j][newNode.state] = newNode
-#                                         cost = problem[6 + F + (j - 1) * v + a]
-#                                         if j - 1 not in adjList:
-#                                             adjList[j - 1] = []
-#                                         adjList[j-1].append(Edge(prevNode, newNode, a, cost))
-#                                         global_edges[prevNode].append(newNode)
-
-#                     for key, prevNode in layers[n - 1].items():
-#                         for a in range(v):
-#                             if problem[6 + F + n * v + (n - 1) * v + a] != 0:
-#                                 if (problem[6 + F + 2 * n * v + l * v * s + prevNode.state * v + a] != -1 and
-#                                         problem[6 + F + 2 * n * v + l * v * s + prevNode.state * v + a] in problem[6: 6 + F]):
-#                                     newNode = Node(n, problem[6 + F + 2 * n * v + l * v * s + prevNode.state * v + a])
-#                                     layers[n][newNode.state] = newNode
-#                                     cost = problem[6 + F + (n - 1) * v + a]
-#                                     if n - 1 not in adjList:
-#                                         adjList[n - 1] = []
-#                                     adjList[n-1].append(Edge(prevNode, newNode, a, cost))
-#                                     global_edges[prevNode].append(newNode)
-
-#                     all_adjLists.append(adjList)
-
-#                     final_states = set([Node(n, state) for state in problem[6: 6 + F]])
-#                     all_paths = bfs_paths(Node(0, 0), final_states, global_edges)
-#                     valid_edges = set()
-                    
-#                     for path in all_paths:
-#                         for i in range(len(path) - 1):
-#                             valid_edges.add((path[i], path[i + 1]))
-
-#                     filtered_adjList = {}
-#                     for j in range(n-1,-1, -1):
-#                         for edge in adjList[j]:
-#                             if (edge.prevNode, edge.newNode) in valid_edges:
-#                                 if j not in filtered_adjList:
-#                                     filtered_adjList[j] = []
-#                                 filtered_adjList[j].append(edge)
-#                     all_adjLists[l] = filtered_adjList
-
-#                 common_edges = intersect_paths(all_adjLists, n)
-
-#                 for idx_feasible in range(n):
-#                     if idx_feasible not in common_edges:
-#                         print("not feasible")
-#                         raise Exception("Not feasible")
-
-#                 for l, adjList in enumerate(all_adjLists):
-#                     for j in range(n - 1):
-#                                 for edge in adjList[j]:
-#                                     for next_edge in adjList[j + 1]:
-#                                         if edge.newNode.state == next_edge.prevNode.state:
-#                                             edge_index.append([l * v * n + j * v + edge.label,l * v * n + (j + 1) * v + next_edge.label])
-#                                             edge_weights.append(1)
-#                                             edge_attributes.append(one_hot_encoding[edge.newNode.state])
-                
-
-#                 for i in range(n):
-#                     for k in range(v):
-#                         for j in range(m - 1):
-#                             for l in range(j + 1, m):
-#                                 edge_index.append([j * n * v + i * v + k, l * n * v + i * v + k])
-#                                 edge_weights.append(1)
-#                                 edge_attributes.append(one_hot_encoding[s])
-
-#                 graph_id = problem[0] * problem[1]
-
-#                 graph = torch_geometric.data.Data(x=torch.FloatTensor(X), edge_index=torch.LongTensor(edge_index).T,
-#                          edge_weight=torch.FloatTensor(edge_weights), edge_attr=torch.stack(edge_attributes), opt = problem[-1],  fix_bound = problem[-2],  graph_id=graph_id, graph_problem=problem)
-                
-#                 graphs.append(graph)
-#             except Exception as e:
-#                 print(f'error: {e}')
-
-#     return graphs
-
-
-
 
 def dp_ssp(profits, domain_values, transitions, states, final_states, nb_states, nb_values, nb_items, initialState, verbose=False):
     feasible = False
@@ -466,9 +328,9 @@ class GNN(torch.nn.Module):
         self.linear_embedding3 = nn.Linear(n_hidden[1], n_hidden[2])
 
         # Define the graph convolutional layers
-        self.conv1 = gnn.ResGatedGraphConv( n_hidden[2], n_hidden[3], edge_dim = 21)
-        self.conv2 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 21)
-        self.conv3 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 21)
+        self.conv1 = gnn.ResGatedGraphConv( n_hidden[2], n_hidden[3], edge_dim = 81)
+        self.conv2 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 81)
+        self.conv3 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 81)
 
         # Define the linear layers for the graph embedding
         self.linear_graph1 = nn.Linear(n_hidden[3], n_hidden[4])
@@ -503,9 +365,6 @@ class GNN(torch.nn.Module):
         G = F.relu(G)
         G = self.linear_graph2(G)
 
-        graph_embeddings = []
-        compteur = 0
-
         graph_embedding = torch.mean(G, dim = 0)
         u = []
         # Concatenate the graph embeddings with the nodes of the problem
@@ -522,12 +381,9 @@ class GNN(torch.nn.Module):
         u = F.relu(u)
         u = self.linear3(u)
 
-       # u = u.to(torch.device('cpu'))
-#        u2=list(torch.clone(u).squeeze(-1).detach().numpy())
         u = u.to(self.device)
         u = u.squeeze(-1)
         # Solve the knapsack problem for each graph of the batch
-        sum_fixed = 0
         value_var_solutions = []
         bound = torch.zeros(1).to(self.device)
 
@@ -596,10 +452,7 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
         for data in train_loader:
             model.train()
             optimizer.zero_grad()
-            #bound = model(input_parameter, data.graph_problem[0])
             bound = model(data.x.to(device), data.edge_index.to(device),data.edge_weight.to(device), data.edge_attr.to(device),data.graph_problem[0])
-            #print(data.opt)
-            #print(data.graph_problem)
             loss = criterion(bound)
             loss.backward()
             optimizer.step()
@@ -631,8 +484,6 @@ def train(model, optimizer, criterion, scheduler, train_loader, val_loader, n_ep
     #check if scheduler is none
         if scheduler is not None:
             scheduler.step(val_loss[-1])
-
-    #, val loss {val_loss[-1]}, , val diff {val_diff[-1]}
         if epoch%1 ==0:
             print(f"Epoch {epoch} : "
       f"train loss {train_loss[-1]},  val loss {val_loss[-1]},\n "
@@ -657,18 +508,18 @@ wandb.init(
     "learning_rate": 0.0001,
     "architecture": "GNN-GatedGraphConv",
     "layers" : " 32, 16, 32, 64, 128, 64, 32, 16, 16",
-    "dataset": "ssp-10-20",
+    "dataset": "ssp-"+ size_instances+ "",
     "epochs": 10
     }
 )
 
 ## Train the models
-graphs_training = load_dataset('/home/darius/scratch/learning-bounds/data/ssp/train/trainset-ssp-data10-20.txt')
-graphs_val = load_dataset('/home/darius/scratch/learning-bounds/data/ssp/train/valset-ssp-data10-20.txt')
+graphs_training = load_dataset('../../../../data/ssp/train/ssp-data-trainset'+ size_instances+ '.txt')
+graphs_val = load_dataset('../../../../data/ssp/train/ssp-data-valset'+ size_instances+ '.txt')
 print("len(graphs_training): ", len(graphs_training))
 print("len(graphs_val): ", len(graphs_val))
-train_loader = torch_geometric.loader.DataLoader(graphs_training, batch_size=1, shuffle=True)
-val_loader = torch_geometric.loader.DataLoader(graphs_val, batch_size=1, shuffle=True)
+train_loader = torch_geometric.loader.DataLoader(graphs_training, batch_size=1, shuffle=False)
+val_loader = torch_geometric.loader.DataLoader(graphs_val, batch_size=1, shuffle=False)
 
 torch.cuda.empty_cache()
 
@@ -677,15 +528,15 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 def criterion(bounds):
     return torch.mean(bounds)
 
-model = GNN(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
+model = GNN(n_features_nodes=4, n_classes=1, n_hidden=[64,32,64, 128, 256, 128, 64, 64, 32], dropout=0.15, device=device).to(device)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.9, patience=5)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=.9, patience=15)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 15, device)
+train_loss, val_loss, train_diff_ecart_opt, val_diff_ecart_opt = train(model, optimizer, criterion, scheduler, train_loader, val_loader, 10, device)
 
 
 
@@ -701,9 +552,9 @@ class GNNsup1(torch.nn.Module):
         self.linear_embedding3 = nn.Linear(n_hidden[1], n_hidden[2])
 
         # Define the graph convolutional layers
-        self.conv1 = gnn.ResGatedGraphConv( n_hidden[2], n_hidden[3], edge_dim = 21)
-        self.conv2 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 21)
-        self.conv3 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 21)
+        self.conv1 = gnn.ResGatedGraphConv( n_hidden[2], n_hidden[3], edge_dim = 81)
+        self.conv2 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 81)
+        self.conv3 = gnn.ResGatedGraphConv( n_hidden[3], n_hidden[3], edge_dim = 81)
 
         # Define the linear layers for the graph embedding
         self.linear_graph1 = nn.Linear(n_hidden[3], n_hidden[4])
@@ -763,7 +614,7 @@ def copy_weights(model_old,model_new):
         if hasattr(model_new, name):
             getattr(model_new, name).load_state_dict(param.state_dict())
 
-torch.save(model.state_dict(), "GNN-SSP-10-20.pt")
+torch.save(model.state_dict(), "../../../../trained_models/SSP/GNN-SSP-"+ size_instances+ ".pt")
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model1 = GNNsup1(n_features_nodes=4, n_classes=1, n_hidden=[32,16,32, 64, 128, 64, 32, 16, 16], dropout=0.15, device=device).to(device)
@@ -773,9 +624,9 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(128)).to(device))
-traced_script_module.save("../../../../trained_models/SSP/model_prediction-GPU10-20.pt")
+traced_script_module.save("../../../../trained_models/SSP/model_prediction-GPU"+ size_instances+ ".pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_attr.to(device)))
-traced_script_module.save("../../../../trained_models/SSP/model_graph_representation-GPU10-20.pt")
+traced_script_module.save("../../../../trained_models/SSP/model_graph_representation-GPU"+ size_instances+ ".pt")
 
 #CPU
 
@@ -787,9 +638,9 @@ copy_weights(model,model1)
 copy_weights(model,model2)
 
 traced_script_module = torch.jit.trace(model2, (torch.ones(128)).to(device))
-traced_script_module.save("../../../../trained_models/SSP/model_prediction-CPU10-20.pt")
+traced_script_module.save("../../../../trained_models/SSP/model_prediction-CPU"+ size_instances+ ".pt")
 traced_script_module = torch.jit.trace(model1, (graphs_training[0].x.to(device), graphs_training[0].edge_index.to(device), graphs_training[0].edge_attr.to(device)))
-traced_script_module.save("../../../../trained_models/SSP/model_graph_representation-CPU10-20.pt")
+traced_script_module.save("../../../../trained_models/SSP/model_graph_representation-CPU"+ size_instances+ ".pt")
 
 
 wandb.finish()
