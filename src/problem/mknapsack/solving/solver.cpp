@@ -831,8 +831,6 @@ public:
             }
 
             rel(*this, z <= std::ceil(final_bound)); 
-            // std::cout << "final bound : " << final_bound << std::endl;
-            // std::cout << "k : " << k-1 << std::endl;
             compteur_iterations += nb_iter-1;
         }
         else if (activate_learning_prediction){
@@ -1194,55 +1192,6 @@ public:
     }
 };
 
-// Function to execute task in a separate process
-bool executeWithTimeout(std::function<void()> func, std::chrono::minutes timeout) {
-    pid_t pid = fork();
-
-    if (pid == -1) {
-        std::cerr << "Failed to fork process" << std::endl;
-        return false;
-    }
-
-    if (pid == 0) {
-        // Child process
-        func();
-        exit(0);
-    } 
-    else {
-        // Parent process
-        auto start = std::chrono::steady_clock::now();
-        while (true) {
-            int status;
-            pid_t result = waitpid(pid, &status, WNOHANG);
-
-            if (result == 0) {
-                // Child still running
-                auto now = std::chrono::steady_clock::now();
-                if (std::chrono::duration_cast<std::chrono::minutes>(now - start) >= timeout) {
-                    // Timeout reached, kill the child process
-                    kill(pid, SIGKILL);
-                    std::cout << "Execution time exceeded " << timeout.count() << " minutes" << std::endl;
-                    return false;
-                }
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-            } 
-            else if (result == pid) {
-                // Child exited
-                if (WIFEXITED(status)) {
-                    return WEXITSTATUS(status) == 0;
-                } 
-                else {
-                    return false;
-                }
-            } 
-            else {
-                std::cerr << "Error waiting for child process" << std::endl;
-                return false;
-            }
-        }
-    }
-}
-
 int main(int argc, char* argv[]) {
 
     std::string n_size = argv[1];
@@ -1323,21 +1272,7 @@ int main(int argc, char* argv[]) {
                         opt.solutions(0);
                         opt.parse(argc, argv);
                         IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                    // auto task = [&]() {
-                    //     OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_init_learning, activate_learning_prediction, activate_learning_and_grad, activate_heuristic, use_gpu, K,learning_rate,init_value_multipliers, &outputFilea , problem, true);
-                    //     opt.instance();
-                    //     opt.solutions(0);
-                    //     opt.parse(argc, argv);
-                    //     IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                    //     };
-
-                    // // Limite d'une heure par tâche
-                    // std::chrono::minutes timeout(60);
-                    // if (!executeWithTimeout(task, timeout)) {
-                    //     std::cout << "Execution time exceeded 15 min for problem " << j << std::endl;
-                    // }
+                    
                     j++;
                     outputFilea.close();
                 }
@@ -1377,21 +1312,6 @@ int main(int argc, char* argv[]) {
                         opt.solutions(0);
                         opt.parse(argc, argv);
                         IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                    // auto task = [&]() {
-                    //     OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation, activate_init_learning, activate_learning_prediction, activate_learning_and_grad, activate_heuristic, use_gpu, K,learning_rate,init_value_multipliers, &outputFilea , problem, true);
-                    //     opt.instance();
-                    //     opt.solutions(0);
-                    //     opt.parse(argc, argv);
-                    //     IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                    // };
-
-                    // // Limite d'une heure par tâche
-                    // std::chrono::minutes timeout(60);
-                    // if (!executeWithTimeout(task, timeout)) {
-                    //     std::cout << "Execution time exceeded 15 min for problem " << j << std::endl;
-                    // }
                     j++;
                     outputFilea.close();
                 }
@@ -1423,12 +1343,12 @@ int main(int argc, char* argv[]) {
                         }
                         else {
                             if (activate_init_learning[index_model]){
-                                module_1 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU" + sizes[index_size] + ".pt");
-                                module_2 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/mknapsack/model_prediction-CPU"+ sizes[index_size]+ ".pt");
+                                module_1 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU-root-" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("/Users/dariusdabert/Documents/Documents/X/3A/Stage Polytechnique Montréal/learning-bounds/trained_models/mknapsack/model_prediction-CPU-root-"+ sizes[index_size]+ ".pt");
                             } 
                             else{
-                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU" + sizes[index_size] + ".pt");
-                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-CPU"+ sizes[index_size]+ ".pt");
+                                module_1 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_graph_representation-CPU-root-" + sizes[index_size] + ".pt");
+                                module_2 = torch::jit::load("/home/darius/scratch/learning-bounds/trained_models/mknapsack/model_prediction-CPU-root-"+ sizes[index_size]+ ".pt");
                             }                   
                         }
                      }
@@ -1459,21 +1379,6 @@ int main(int argc, char* argv[]) {
                             opt.solutions(0);
                             opt.parse(argc, argv);
                             IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                            // auto task = [&]() {
-                            // OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation[index_model], activate_init_learning[index_model], activate_learning_prediction[index_model], activate_learning_and_grad[index_model], activate_heuristic[index_model], use_gpu, K,learning_rate,init_value_multipliers, NULL , problem, false);
-                            // opt.instance();
-                            // opt.solutions(0);
-                            // opt.parse(argc, argv);
-                            // IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                            // };
-
-                            // // Limite d'une heure par tâche
-                            // std::chrono::minutes timeout(60);
-                            // if (!executeWithTimeout(task, timeout)) {
-                            //     std::cout << "Execution time exceeded 15 min for problem " << j << std::endl;
-                            // }
                             std::cout << "compteur_iterations : " << compteur_iterations << std::endl;
                         }
                   
@@ -1536,21 +1441,6 @@ int main(int argc, char* argv[]) {
                             opt.solutions(0);
                             opt.parse(argc, argv);
                             IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                        // auto task = [&]() {
-                        //     OptionsKnapsack opt=OptionsKnapsack(activate_bound_computation[index_model],  activate_init_learning[index_model], activate_learning_prediction[index_model], activate_learning_and_grad[index_model], activate_heuristic[index_model], use_gpu, K,learning_rate,init_value_multipliers, NULL , problem, false);
-                        //     opt.instance();
-                        //     opt.solutions(0);
-                        //     opt.parse(argc, argv);
-                        //     IntMaximizeScript::run<MultiKnapsack,BAB,OptionsKnapsack>(opt);
-
-                        //     };
-
-                        //     // Limite d'une heure par tâche
-                        //     std::chrono::minutes timeout(60);
-                        //     if (!executeWithTimeout(task, timeout)) {
-                        //         std::cout << "Execution time exceeded 15 min for problem " << j << std::endl;
-                        //     }
                         std::cout << "compteur_iterations : " << compteur_iterations << std::endl;
                     }
               
