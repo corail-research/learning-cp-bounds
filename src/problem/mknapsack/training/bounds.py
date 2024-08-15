@@ -292,7 +292,7 @@ class GNN(torch.nn.Module):
         return bounds, u
 
 ## Train the models
-graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/test/pissinger/knapsacks-data-testset" + size_instances +".txt")
+graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/bounds/knapsacks-data-testset" + size_instances +".txt")
 print("len(graphs_training)", len(graphs_training))
 
 # Create train_set and val_set
