@@ -292,7 +292,7 @@ class GNN(torch.nn.Module):
         return bounds, u
 
 ## Train the models
-graphs_training = load_dataset("/home/darius/scratch/learning-bounds/data/mknapsack/bounds/knapsacks-data-testset" + size_instances +".txt")
+graphs_training = load_dataset("../../../../data/mknapsack/bounds/knapsacks-data-testset" + size_instances +".txt")
 print("len(graphs_training)", len(graphs_training))
 
 # Create train_set and val_set
@@ -307,7 +307,7 @@ def criterion(bounds):
 
 model = GNN(n_features_nodes=6, n_classes=1, n_hidden=[128, 16, 64, 64, 256, 128, 32, 32], dropout=0.15, device=device).to(device)
 
-model.load_state_dict(torch.load("GNN-" + size_instances + ".pt"))
+model.load_state_dict(torch.load("../../../../trained_models/mknapsack/GNN-" + size_instances + ".pt"))
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
