@@ -63,14 +63,6 @@ make mknapsack
 ```
 It will create the executable ```solver_mknapsack```.
 
-### 5. Compiling the solver
-
-A makefile is available in the root repository. First, modify it by adding your python path. Then, you can compile the project as follows:
-
-```shell
-make [problem] # e.g. make tsptw
-```
-It will create the executable ```solver_tsptw```.
 
 ## Basic use
 
