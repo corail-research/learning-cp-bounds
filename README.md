@@ -42,7 +42,7 @@ For each problem that we have considered, you can find:
 ### 1. Importing the repository
 
 ```shell
-git clone https://github.com/corail-research/learning-bounds.git
+ANONYMIZED
 ```
 
 
