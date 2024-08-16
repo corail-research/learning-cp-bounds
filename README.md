@@ -101,17 +101,6 @@ python3 lbounds --size_instances=100 #train a model for instances with up to 100
 * The graph neural network architecture has been implemented in torch_geometric. 
 * The interface between the C++ and Python code is done with [Pybind11](https://github.com/pybind) and libtorch.
 
-
-## Cite
-
-Please use this reference:
-
-```latex
-@misc{dabert2024learningbounds,
-    title={Learning Valid Dual Bounds in Constraint Programming: Boosted Lagrangian Decomposition with Self-Supervised Learning},
-    author={Darius Dabert, Swann Bessa, Max Bourgeat, Louis-Martin Rousseau, Quentin Cappart},
-    year={2024},
-}
 ```
 
 ## Licence
